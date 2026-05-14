@@ -19,6 +19,7 @@ use std::time::{Duration, Instant, SystemTime};
 use crate::filter::ConnectionFilter;
 
 use crate::network::{
+    bogon::{Scope, classify},
     capture::{CaptureConfig, PacketReader, setup_packet_capture},
     dns::DnsResolver,
     geoip::{GeoIpConfig, GeoIpResolver},
@@ -29,8 +30,8 @@ use crate::network::{
     platform::create_process_lookup,
     services::ServiceLookup,
     types::{
-        ApplicationProtocol, Connection, ConnectionKey, Device, DnsQueryType, Listener, Protocol,
-        RttTracker, TrafficHistory,
+        ApplicationProtocol, ArpOperation, Connection, ConnectionKey, Device, DnsQueryType,
+        Listener, Protocol, ProtocolState, RttTracker, TrafficHistory,
     },
 };
 
@@ -2173,8 +2174,9 @@ fn update_device(
 ) {
     let now = SystemTime::now();
 
-    // Helper to update or create a device entry
-    let mut upsert_device = |ip: IpAddr, mac: Option<String>, is_sent: bool| {
+    // Helper to update or create a device entry.
+    // `force` bypasses the scope check (used for explicit ARP mappings).
+    let upsert_device = |ip: IpAddr, mac: Option<String>, is_sent: bool, force: bool| {
         // Skip multicast and broadcast IPs
         if ip.is_multicast() || ip.is_unspecified() {
             return;
@@ -2184,6 +2186,18 @@ fn update_device(
         if let IpAddr::V4(v4) = ip {
             if v4.is_broadcast() || v4.octets()[3] == 255 {
                 return;
+            }
+        }
+
+        // Apply heuristic: only trust IP-MAC association if the IP is local/private,
+        // or if it's an explicit ARP confirmation. Associating a global IP with
+        // a MAC usually results in the local gateway's MAC "stealing" the IPs
+        // of every internet host the user visits.
+        if !force {
+            let scope = classify(ip);
+            match scope {
+                Scope::Private | Scope::LinkLocal | Scope::UniqueLocal | Scope::Cgnat => {}
+                _ => return, // Don't trust public/other IPs for local discovery
             }
         }
 
@@ -2209,7 +2223,9 @@ fn update_device(
                 d.protocols.insert(protocol_str.clone());
             })
             .or_insert_with(|| {
-                let vendor = oui_lookup.as_ref().and_then(|oui| oui.lookup(&mac_addr).map(String::from));
+                let vendor = oui_lookup
+                    .as_ref()
+                    .and_then(|oui| oui.lookup(&mac_addr).map(String::from));
                 let mut protocols = std::collections::HashSet::new();
                 protocols.insert(protocol_str);
 
@@ -2228,16 +2244,35 @@ fn update_device(
             });
     };
 
-    // Update for both local (source) and remote (destination) sides
-    // In our capture:
-    // - For outgoing: local_addr is source, remote_addr is destination
-    // - For incoming: local_addr is destination, remote_addr is source
-    if parsed.is_outgoing {
-        upsert_device(parsed.local_addr.ip(), parsed.local_mac.clone(), true);
-        upsert_device(parsed.remote_addr.ip(), parsed.remote_mac.clone(), false);
+    // Update discovery based on protocol type
+    if let ProtocolState::Arp(ref arp) = parsed.protocol_state {
+        // For ARP, we have explicit sender mapping
+        upsert_device(arp.sender_ip, Some(arp.sender_mac.clone()), true, true);
+
+        // For replies, the target mapping is also definitive
+        if arp.operation == ArpOperation::Reply {
+            upsert_device(arp.target_ip, Some(arp.target_mac.clone()), false, true);
+        }
     } else {
-        upsert_device(parsed.local_addr.ip(), parsed.local_mac.clone(), false);
-        upsert_device(parsed.remote_addr.ip(), parsed.remote_mac.clone(), true);
+        // For IP protocols, use the local and remote endpoints from the packet.
+        // `upsert_device` will apply the scope heuristic internally.
+        if parsed.is_outgoing {
+            upsert_device(parsed.local_addr.ip(), parsed.local_mac.clone(), true, false);
+            upsert_device(
+                parsed.remote_addr.ip(),
+                parsed.remote_mac.clone(),
+                false,
+                false,
+            );
+        } else {
+            upsert_device(
+                parsed.local_addr.ip(),
+                parsed.local_mac.clone(),
+                false,
+                false,
+            );
+            upsert_device(parsed.remote_addr.ip(), parsed.remote_mac.clone(), true, false);
+        }
     }
 }
 
