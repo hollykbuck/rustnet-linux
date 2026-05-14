@@ -883,6 +883,12 @@ mod tests {
             .map(|name| InterfaceStats {
                 interface_name: name.to_string(),
                 description: None,
+                mac_address: None,
+                ipv4: Vec::new(),
+                ipv6: Vec::new(),
+                mtu: None,
+                operstate: None,
+                flags: None,
                 rx_bytes: 0,
                 tx_bytes: 0,
                 rx_packets: 0,

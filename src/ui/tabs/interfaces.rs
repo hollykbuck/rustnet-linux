@@ -127,7 +127,7 @@ fn draw_interface_modal(
     rates: Option<&crate::network::interface_stats::InterfaceRates>,
 ) {
     use crate::ui::components::{Clear, centered_rect};
-    let area = centered_rect(60, 60, f.area());
+    let area = centered_rect(70, 80, f.area());
     f.render_widget(Clear, area);
 
     let block = panel_block(format!(" Interface Details: {} ", stat.interface_name));
@@ -149,6 +149,53 @@ fn draw_interface_modal(
             value_style,
         )),
     ]));
+
+    if let Some(mac) = &stat.mac_address {
+        rows.push(Row::new(vec![
+            Cell::from(Span::styled("MAC Address:", label_style)),
+            Cell::from(Span::styled(mac.clone(), value_style)),
+        ]));
+    }
+
+    if !stat.ipv4.is_empty() {
+        let ips = stat.ipv4.iter().map(|ip| ip.to_string()).collect::<Vec<_>>().join(", ");
+        rows.push(Row::new(vec![
+            Cell::from(Span::styled("IPv4:", label_style)),
+            Cell::from(Span::styled(ips, value_style)),
+        ]));
+    }
+
+    if !stat.ipv6.is_empty() {
+        let ips = stat.ipv6.iter().map(|ip| ip.to_string()).collect::<Vec<_>>().join(", ");
+        rows.push(Row::new(vec![
+            Cell::from(Span::styled("IPv6:", label_style)),
+            Cell::from(Span::styled(ips, value_style)),
+        ]));
+    }
+
+    if let Some(mtu) = stat.mtu {
+        rows.push(Row::new(vec![
+            Cell::from(Span::styled("MTU:", label_style)),
+            Cell::from(Span::styled(mtu.to_string(), value_style)),
+        ]));
+    }
+
+    if let Some(state) = &stat.operstate {
+        rows.push(Row::new(vec![
+            Cell::from(Span::styled("Status:", label_style)),
+            Cell::from(Span::styled(state.clone(), value_style)),
+        ]));
+    }
+
+    if let Some(flags) = stat.flags {
+        rows.push(Row::new(vec![
+            Cell::from(Span::styled("Flags:", label_style)),
+            Cell::from(Span::styled(format!("0x{:X}", flags), value_style)),
+        ]));
+    }
+
+    rows.push(Row::new(vec![Cell::from(""), Cell::from("")])); // Spacer
+
     rows.push(Row::new(vec![
         Cell::from(Span::styled("RX Bytes:", label_style)),
         Cell::from(Span::styled(

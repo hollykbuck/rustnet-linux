@@ -78,8 +78,36 @@ impl InterfaceStatsProvider for WindowsStatsProvider {
                     continue;
                 }
 
+                // Get metadata from pnet_datalink
+                let mut ipv4 = Vec::new();
+                let mut ipv6 = Vec::new();
+                let mut mac_address = None;
+                let mut flags = None;
+
+                for iface in pnet_datalink::interfaces() {
+                    // Match by name or index
+                    if iface.name == name || iface.index == row.InterfaceIndex {
+                        for ip in iface.ips {
+                            match ip.ip() {
+                                std::net::IpAddr::V4(_) => ipv4.push(ip.ip()),
+                                std::net::IpAddr::V6(_) => ipv6.push(ip.ip()),
+                            }
+                        }
+                        mac_address = iface.mac.map(|m| m.to_string());
+                        flags = Some(iface.flags);
+                        break;
+                    }
+                }
+
                 let stat = InterfaceStats {
                     interface_name: name.clone(),
+                    description: None,
+                    mac_address,
+                    ipv4,
+                    ipv6,
+                    mtu: Some(row.Mtu as u64),
+                    operstate: Some(format!("{:?}", row.OperStatus)),
+                    flags,
                     rx_bytes: row.InOctets,
                     tx_bytes: row.OutOctets,
                     rx_packets: row.InUcastPkts + row.InNUcastPkts,

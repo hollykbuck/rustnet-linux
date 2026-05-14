@@ -10,7 +10,8 @@ pub struct LinuxStatsProvider;
 
 impl LinuxStatsProvider {
     pub fn get_stats(&self, interface: &str) -> Result<InterfaceStats, io::Error> {
-        let base_path = format!("/sys/class/net/{}/statistics", interface);
+        let base_path = format!("/sys/class/net/{}", interface);
+        let stats_path = format!("{}/statistics", base_path);
 
         // Check if interface exists
         if !std::path::Path::new(&base_path).exists() {
@@ -20,18 +21,49 @@ impl LinuxStatsProvider {
             ));
         }
 
+        // Get metadata from pnet_datalink
+        let mut ipv4 = Vec::new();
+        let mut ipv6 = Vec::new();
+        let mut mac_address = None;
+        let mut flags = None;
+
+        for iface in pnet_datalink::interfaces() {
+            if iface.name == interface {
+                for ip in iface.ips {
+                    match ip.ip() {
+                        std::net::IpAddr::V4(_) => ipv4.push(ip.ip()),
+                        std::net::IpAddr::V6(_) => ipv6.push(ip.ip()),
+                    }
+                }
+                mac_address = iface.mac.map(|m| m.to_string());
+                flags = Some(iface.flags);
+                break;
+            }
+        }
+
+        let mtu = read_stat(&base_path, "mtu").ok();
+        let operstate = fs::read_to_string(format!("{}/operstate", base_path))
+            .map(|s| s.trim().to_string())
+            .ok();
+
         Ok(InterfaceStats {
             interface_name: interface.to_string(),
             description: resolve_description(interface),
-            rx_bytes: read_stat(&base_path, "rx_bytes")?,
-            tx_bytes: read_stat(&base_path, "tx_bytes")?,
-            rx_packets: read_stat(&base_path, "rx_packets")?,
-            tx_packets: read_stat(&base_path, "tx_packets")?,
-            rx_errors: read_stat(&base_path, "rx_errors")?,
-            tx_errors: read_stat(&base_path, "tx_errors")?,
-            rx_dropped: read_stat(&base_path, "rx_dropped")?,
-            tx_dropped: read_stat(&base_path, "tx_dropped")?,
-            collisions: read_stat(&base_path, "collisions")?,
+            mac_address,
+            ipv4,
+            ipv6,
+            mtu,
+            operstate,
+            flags,
+            rx_bytes: read_stat(&stats_path, "rx_bytes")?,
+            tx_bytes: read_stat(&stats_path, "tx_bytes")?,
+            rx_packets: read_stat(&stats_path, "rx_packets")?,
+            tx_packets: read_stat(&stats_path, "tx_packets")?,
+            rx_errors: read_stat(&stats_path, "rx_errors")?,
+            tx_errors: read_stat(&stats_path, "tx_errors")?,
+            rx_dropped: read_stat(&stats_path, "rx_dropped")?,
+            tx_dropped: read_stat(&stats_path, "tx_dropped")?,
+            collisions: read_stat(&stats_path, "collisions")?,
             timestamp: SystemTime::now(),
         })
     }

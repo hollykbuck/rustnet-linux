@@ -32,8 +32,35 @@ impl InterfaceStatsProvider for FreeBSDStatsProvider {
                     #[cfg(target_os = "freebsd")]
                     {
                         if let Some(if_data) = (ifa.ifa_data as *const libc::if_data).as_ref() {
+                            // Get metadata from pnet_datalink
+                            let mut ipv4 = Vec::new();
+                            let mut ipv6 = Vec::new();
+                            let mut mac_address = None;
+                            let mut flags = None;
+
+                            for iface in pnet_datalink::interfaces() {
+                                if iface.name == name {
+                                    for ip in iface.ips {
+                                        match ip.ip() {
+                                            std::net::IpAddr::V4(_) => ipv4.push(ip.ip()),
+                                            std::net::IpAddr::V6(_) => ipv6.push(ip.ip()),
+                                        }
+                                    }
+                                    mac_address = iface.mac.map(|m| m.to_string());
+                                    flags = Some(iface.flags);
+                                    break;
+                                }
+                            }
+
                             stats.push(InterfaceStats {
                                 interface_name: name,
+                                description: None,
+                                mac_address,
+                                ipv4,
+                                ipv6,
+                                mtu: Some(if_data.ifi_mtu as u64),
+                                operstate: None,
+                                flags,
                                 rx_bytes: if_data.ifi_ibytes,
                                 tx_bytes: if_data.ifi_obytes,
                                 rx_packets: if_data.ifi_ipackets,

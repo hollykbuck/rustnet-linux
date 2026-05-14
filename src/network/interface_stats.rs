@@ -1,4 +1,5 @@
 use std::io;
+use std::net::IpAddr;
 use std::time::SystemTime;
 
 /// Statistics for a network interface
@@ -6,6 +7,14 @@ use std::time::SystemTime;
 pub struct InterfaceStats {
     pub interface_name: String,
     pub description: Option<String>,
+    // Metadata
+    pub mac_address: Option<String>,
+    pub ipv4: Vec<IpAddr>,
+    pub ipv6: Vec<IpAddr>,
+    pub mtu: Option<u64>,
+    pub operstate: Option<String>,
+    pub flags: Option<u32>,
+    // Traffic Counters
     pub rx_bytes: u64,
     pub tx_bytes: u64,
     pub rx_packets: u64,
@@ -58,16 +67,18 @@ mod tests {
     use super::*;
     use std::time::Duration;
 
-    #[test]
-    fn test_rate_calculation() {
-        let t1 = SystemTime::now();
-        let t2 = t1 + Duration::from_secs(1);
-
-        let stats1 = InterfaceStats {
-            interface_name: "test".to_string(),
+    fn mock_stats(name: &str, rx: u64, tx: u64, timestamp: SystemTime) -> InterfaceStats {
+        InterfaceStats {
+            interface_name: name.to_string(),
             description: None,
-            rx_bytes: 1000,
-            tx_bytes: 500,
+            mac_address: None,
+            ipv4: Vec::new(),
+            ipv6: Vec::new(),
+            mtu: None,
+            operstate: None,
+            flags: None,
+            rx_bytes: rx,
+            tx_bytes: tx,
             rx_packets: 10,
             tx_packets: 5,
             rx_errors: 0,
@@ -75,23 +86,17 @@ mod tests {
             rx_dropped: 0,
             tx_dropped: 0,
             collisions: 0,
-            timestamp: t1,
-        };
+            timestamp,
+        }
+    }
 
-        let stats2 = InterfaceStats {
-            interface_name: "test".to_string(),
-            description: None,
-            rx_bytes: 2000,
-            tx_bytes: 1000,
-            rx_packets: 20,
-            tx_packets: 10,
-            rx_errors: 0,
-            tx_errors: 0,
-            rx_dropped: 0,
-            tx_dropped: 0,
-            collisions: 0,
-            timestamp: t2,
-        };
+    #[test]
+    fn test_rate_calculation() {
+        let t1 = SystemTime::now();
+        let t2 = t1 + Duration::from_secs(1);
+
+        let stats1 = mock_stats("test", 1000, 500, t1);
+        let stats2 = mock_stats("test", 2000, 1000, t2);
 
         let rates = stats2.calculate_rates(&stats1);
         assert_eq!(rates.rx_bytes_per_sec, 1000);
@@ -101,22 +106,7 @@ mod tests {
     #[test]
     fn test_rate_calculation_zero_duration() {
         let t = SystemTime::now();
-
-        let stats1 = InterfaceStats {
-            interface_name: "test".to_string(),
-            description: None,
-            rx_bytes: 1000,
-            tx_bytes: 500,
-            rx_packets: 10,
-            tx_packets: 5,
-            rx_errors: 0,
-            tx_errors: 0,
-            rx_dropped: 0,
-            tx_dropped: 0,
-            collisions: 0,
-            timestamp: t,
-        };
-
+        let stats1 = mock_stats("test", 1000, 500, t);
         let stats2 = stats1.clone();
 
         let rates = stats2.calculate_rates(&stats1);
@@ -129,36 +119,8 @@ mod tests {
         let t1 = SystemTime::now();
         let t2 = t1 + Duration::from_secs(1);
 
-        let stats1 = InterfaceStats {
-            interface_name: "test".to_string(),
-            description: None,
-            rx_bytes: 1000,
-            tx_bytes: 500,
-            rx_packets: 10,
-            tx_packets: 5,
-            rx_errors: 0,
-            tx_errors: 0,
-            rx_dropped: 0,
-            tx_dropped: 0,
-            collisions: 0,
-            timestamp: t1,
-        };
-
-        // Simulate counter reset (should use saturating_sub to avoid panic)
-        let stats2 = InterfaceStats {
-            interface_name: "test".to_string(),
-            description: None,
-            rx_bytes: 500, // Less than previous
-            tx_bytes: 250,
-            rx_packets: 5,
-            tx_packets: 2,
-            rx_errors: 0,
-            tx_errors: 0,
-            rx_dropped: 0,
-            tx_dropped: 0,
-            collisions: 0,
-            timestamp: t2,
-        };
+        let stats1 = mock_stats("test", 1000, 500, t1);
+        let stats2 = mock_stats("test", 500, 250, t2);
 
         let rates = stats2.calculate_rates(&stats1);
         // Should result in 0 due to saturating_sub
