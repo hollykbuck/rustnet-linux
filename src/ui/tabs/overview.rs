@@ -1,7 +1,6 @@
 use crate::app::{App, AppStats};
 use crate::network::types::{ApplicationProtocol, Connection, Protocol, ProtocolState, TcpState};
 use crate::ui::*;
-use ratatui::prelude::*;
 use ratatui::widgets::{Cell, Paragraph, Row, Table, Wrap};
 
 pub fn draw_overview(

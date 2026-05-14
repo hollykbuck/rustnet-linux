@@ -3,7 +3,6 @@ use crate::network::types::{
     AppProtocolDistribution, Connection, Protocol, ProtocolState, TcpState, TrafficHistory,
 };
 use crate::ui::*;
-use ratatui::prelude::*;
 use ratatui::widgets::{Axis, Cell, Chart, Dataset, GraphType, Paragraph, Row, Sparkline, Table};
 
 pub fn draw_graph_tab(

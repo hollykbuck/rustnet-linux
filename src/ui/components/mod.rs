@@ -1,5 +1,4 @@
 use crate::ui::*;
-use ratatui::prelude::*;
 use ratatui::widgets::{Block, BorderType, Borders, Paragraph};
 
 /// Helper to create a standard styled panel block with a title.

@@ -1,7 +1,6 @@
 use crate::app::App;
 use crate::network::types::Device;
 use crate::ui::*;
-use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, Cell, Row, Table};
 
 pub fn draw_devices(

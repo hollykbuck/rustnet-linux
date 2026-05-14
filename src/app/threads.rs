@@ -16,8 +16,6 @@ use crate::network::interface_stats::{InterfaceStats, InterfaceStatsProvider};
 use crate::network::parser::{PacketParser, ParserConfig};
 use crate::network::platform::create_process_lookup;
 use crate::network::services::ServiceLookup;
-#[cfg(target_os = "linux")]
-use crate::network::types::RouteEntry;
 use crate::network::types::{Connection, Listener};
 
 // Platform-specific interface stats provider

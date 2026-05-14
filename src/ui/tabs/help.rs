@@ -1,5 +1,4 @@
 use crate::ui::*;
-use ratatui::prelude::*;
 use ratatui::widgets::{Paragraph, Wrap};
 
 pub fn draw_help(f: &mut Frame, area: Rect) -> anyhow::Result<()> {

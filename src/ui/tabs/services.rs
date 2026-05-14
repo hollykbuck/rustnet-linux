@@ -1,7 +1,6 @@
 use crate::app::App;
 use crate::network::types::{Listener, Protocol};
 use crate::ui::*;
-use ratatui::prelude::*;
 use ratatui::widgets::{Cell, Paragraph, Row, Table};
 
 pub fn draw_services(

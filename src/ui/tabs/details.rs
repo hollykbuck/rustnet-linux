@@ -1,7 +1,6 @@
 use crate::network::dns::DnsResolver;
 use crate::network::types::{Connection, Device, Listener};
 use crate::ui::*;
-use ratatui::prelude::*;
 use ratatui::widgets::{Paragraph, Wrap};
 
 const DETAIL_LABEL_WIDTH: usize = 22;

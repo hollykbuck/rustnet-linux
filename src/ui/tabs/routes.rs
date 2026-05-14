@@ -1,6 +1,5 @@
 use crate::app::App;
 use crate::ui::*;
-use ratatui::prelude::*;
 use ratatui::widgets::{Cell, Row, Table};
 
 pub fn draw_routes_tab(f: &mut Frame, app: &App, area: Rect) -> anyhow::Result<()> {
