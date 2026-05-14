@@ -393,12 +393,12 @@ fn handle_key_event(
             }
             (KeyCode::Char('c'), KeyModifiers::CONTROL) => return Ok(true),
             (KeyCode::Tab, KeyModifiers::NONE) => {
-                ui_state.selected_tab = (ui_state.selected_tab + 1) % 7;
+                ui_state.selected_tab = (ui_state.selected_tab + 1) % 8;
                 update_details_mode(ui_state);
             }
             (KeyCode::BackTab, _) | (KeyCode::Tab, KeyModifiers::SHIFT) => {
                 ui_state.selected_tab = if ui_state.selected_tab == 0 {
-                    6
+                    7
                 } else {
                     ui_state.selected_tab - 1
                 };

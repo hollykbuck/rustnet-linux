@@ -154,7 +154,7 @@ pub use freebsd::{FreeBSDStatsProvider, create_process_lookup};
 #[cfg(all(target_os = "linux", feature = "landlock"))]
 pub use linux::sandbox;
 #[cfg(target_os = "linux")]
-pub use linux::{LinuxStatsProvider, create_process_lookup};
+pub use linux::{LinuxRouteProvider, LinuxStatsProvider, create_process_lookup};
 #[cfg(all(target_os = "macos", feature = "macos-sandbox"))]
 pub use macos::sandbox;
 #[cfg(target_os = "macos")]

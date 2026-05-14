@@ -2,6 +2,7 @@
 
 mod interface_stats;
 mod process;
+pub mod routes;
 
 #[cfg(feature = "ebpf")]
 pub mod ebpf;
@@ -13,6 +14,7 @@ pub mod sandbox;
 
 pub use interface_stats::LinuxStatsProvider;
 pub use process::LinuxProcessLookup;
+pub use routes::LinuxRouteProvider;
 
 use super::ProcessLookup;
 use anyhow::Result;

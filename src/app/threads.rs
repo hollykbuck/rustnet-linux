@@ -16,6 +16,8 @@ use crate::network::interface_stats::{InterfaceStats, InterfaceStatsProvider};
 use crate::network::parser::{PacketParser, ParserConfig};
 use crate::network::platform::create_process_lookup;
 use crate::network::services::ServiceLookup;
+#[cfg(target_os = "linux")]
+use crate::network::types::RouteEntry;
 use crate::network::types::{Connection, Listener};
 
 // Platform-specific interface stats provider
@@ -64,6 +66,9 @@ impl crate::app::App {
 
         // Start interface stats collection thread
         self.start_interface_stats_thread()?;
+
+        // Start route refresh thread
+        self.start_route_refresh_thread()?;
 
         // Start traffic history thread for graph visualization
         self.start_traffic_history_thread()?;
@@ -924,6 +929,40 @@ impl crate::app::App {
                 }
             })
             .expect("Failed to spawn ifstats_poll thread");
+
+        Ok(())
+    }
+
+    /// Start route refresh thread
+    fn start_route_refresh_thread(&self) -> Result<()> {
+        let routes = Arc::clone(&self.routes);
+        let should_stop = Arc::clone(&self.should_stop);
+
+        thread::Builder::new()
+            .name("route_refresh".to_string())
+            .spawn(move || {
+                info!("Route refresh thread started");
+                while !should_stop.load(Ordering::Relaxed) {
+                    #[cfg(target_os = "linux")]
+                    {
+                        use crate::network::platform::LinuxRouteProvider;
+                        match LinuxRouteProvider::get_routes() {
+                            Ok(new_routes) => {
+                                let mut guard = routes.write().expect("routes lock poisoned");
+                                *guard = new_routes;
+                            }
+                            Err(e) => {
+                                warn!("Failed to refresh routes: {}", e);
+                            }
+                        }
+                    }
+
+                    // Refresh every 5 seconds to minimize overhead
+                    thread::sleep(Duration::from_secs(5));
+                }
+                info!("Route refresh thread stopped");
+            })
+            .expect("Failed to spawn route_refresh thread");
 
         Ok(())
     }

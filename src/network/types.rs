@@ -1802,6 +1802,17 @@ pub struct Listener {
     pub active_connections: usize,
 }
 
+/// Represents an entry in the system routing table
+#[derive(Debug, Clone)]
+pub struct RouteEntry {
+    pub destination: std::net::IpAddr,
+    pub gateway: Option<std::net::IpAddr>,
+    pub netmask: std::net::IpAddr,
+    pub interface: String,
+    pub flags: u32,
+    pub metric: i32,
+}
+
 /// Represents a discovered device on the local network
 #[derive(Debug, Clone)]
 pub struct Device {

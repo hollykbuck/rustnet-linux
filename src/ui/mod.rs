@@ -308,8 +308,9 @@ pub fn draw(
             )?,
         },
         4 => draw_interface_stats(f, app, content_area)?,
-        5 => draw_graph_tab(f, app, connections, content_area)?,
-        6 => draw_help(f, content_area)?,
+        5 => draw_routes_tab(f, app, content_area)?,
+        6 => draw_graph_tab(f, app, connections, content_area)?,
+        7 => draw_help(f, content_area)?,
         _ => {}
     }
 
@@ -324,6 +325,7 @@ fn draw_tabs(f: &mut Frame, ui_state: &UIState, area: Rect, click_regions: &mut 
         "Services",
         "Details",
         "Interfaces",
+        "Routes",
         "Graph",
         "Help",
     ];

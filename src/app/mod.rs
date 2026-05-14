@@ -22,7 +22,8 @@ use crate::network::interface_stats::{InterfaceRates, InterfaceStats};
 use crate::network::oui::OuiLookup;
 use crate::network::services::ServiceLookup;
 use crate::network::types::{
-    ApplicationProtocol, Connection, Device, DnsQueryType, Listener, RttTracker, TrafficHistory,
+    ApplicationProtocol, Connection, Device, DnsQueryType, Listener, RouteEntry, RttTracker,
+    TrafficHistory,
 };
 pub use config::Config;
 pub use types::{AppStats, ProcessDetectionStatus, SandboxInfo};
@@ -85,6 +86,9 @@ pub struct App {
 
     /// Active listening sockets on the system
     pub(crate) listeners: Arc<RwLock<Vec<Listener>>>,
+
+    /// System routing table entries
+    pub(crate) routes: Arc<RwLock<Vec<RouteEntry>>>,
 
     /// Discovered devices on local network
     pub(crate) devices: Arc<DashMap<String, Device>>,
@@ -201,6 +205,7 @@ impl App {
             traffic_history: Arc::new(RwLock::new(TrafficHistory::new(60))), // 60 seconds of history
             rtt_tracker: Arc::new(Mutex::new(RttTracker::new())),
             listeners: Arc::new(RwLock::new(Vec::new())),
+            routes: Arc::new(RwLock::new(Vec::new())),
             devices: Arc::new(DashMap::new()),
             dns_resolver,
             geoip_resolver,
@@ -307,6 +312,11 @@ impl App {
             .read()
             .expect("listeners lock poisoned")
             .clone()
+    }
+
+    /// Get a snapshot of system routing table entries
+    pub fn get_routes(&self) -> Vec<RouteEntry> {
+        self.routes.read().expect("routes lock poisoned").clone()
     }
 
     /// Get a snapshot of discovered devices on the local network
