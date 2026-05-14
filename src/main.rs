@@ -584,6 +584,7 @@ where
     // or when an event changes the underlying data (filter, sort, historic toggle, etc.)
     let mut connections: Vec<network::types::Connection> = Vec::new();
     let mut grouped_rows: Vec<ui::GroupedRow<'_>> = Vec::new();
+    let mut listeners: Vec<network::types::Listener> = Vec::new();
     let mut stats = app.get_stats();
     let mut needs_data_refresh = true;
     let mut needs_regroup = false;
@@ -608,6 +609,7 @@ where
             } else {
                 Vec::new()
             };
+            listeners = app.get_listeners();
             stats = app.get_stats();
             last_tick = std::time::Instant::now();
             needs_data_refresh = false;
@@ -634,6 +636,17 @@ where
                 ui_state.grouped_scroll_offset,
                 ui_state.visible_rows,
                 grouped_rows.len(),
+            );
+        } else if ui_state.selected_tab == 2 {
+            // Stable scroll offset for services
+            let mut listeners_sorted = listeners.clone();
+            listeners_sorted.sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
+            let selected_idx = ui_state.get_selected_service_index(&listeners_sorted).unwrap_or(0);
+            ui_state.services_scroll_offset = ui::compute_scroll_offset(
+                selected_idx,
+                ui_state.services_scroll_offset,
+                ui_state.visible_rows,
+                listeners_sorted.len(),
             );
         } else {
             ui_state.ensure_valid_selection(&connections);
@@ -714,8 +727,14 @@ where
                                 match action.clone() {
                                     ui::ClickAction::SwitchTab(tab_idx) => {
                                         ui_state.selected_tab = tab_idx;
+                                        if tab_idx == 0 {
+                                            ui_state.details_view_mode = ui::DetailsViewMode::Connection;
+                                        } else if tab_idx == 2 {
+                                            ui_state.details_view_mode = ui::DetailsViewMode::Service;
+                                        }
                                     }
                                     ui::ClickAction::SelectConnection(conn_idx) => {
+                                        ui_state.details_view_mode = ui::DetailsViewMode::Connection;
                                         if ui_state.grouping_enabled {
                                             ui_state.set_selected_grouped_by_index(
                                                 &grouped_rows,
@@ -744,6 +763,20 @@ where
                                             }
                                         }
                                     }
+                                    ui::ClickAction::SelectService(service_idx) => {
+                                        ui_state.details_view_mode = ui::DetailsViewMode::Service;
+                                        let mut listeners_sorted = listeners.clone();
+                                        listeners_sorted.sort_by(|a, b| {
+                                            b.active_connections.cmp(&a.active_connections)
+                                        });
+                                        ui_state.set_selected_service_by_index(
+                                            &listeners_sorted,
+                                            service_idx,
+                                        );
+                                        if is_double_click {
+                                            ui_state.selected_tab = 3;
+                                        }
+                                    }
                                     ui::ClickAction::CopyField { label, value } => {
                                         copy_to_clipboard(
                                             &value,
@@ -761,12 +794,19 @@ where
                                 && mouse.column < scroll_area.x + scroll_area.width
                                 && mouse.row >= scroll_area.y
                                 && mouse.row < scroll_area.y + scroll_area.height
-                                && ui_state.selected_tab == 0
                             {
-                                if ui_state.grouping_enabled {
-                                    ui_state.move_selection_up_grouped(&grouped_rows);
-                                } else {
-                                    ui_state.move_selection_up(&connections);
+                                if ui_state.selected_tab == 0 {
+                                    if ui_state.grouping_enabled {
+                                        ui_state.move_selection_up_grouped(&grouped_rows);
+                                    } else {
+                                        ui_state.move_selection_up(&connections);
+                                    }
+                                } else if ui_state.selected_tab == 2 {
+                                    let mut listeners_sorted = listeners.clone();
+                                    listeners_sorted.sort_by(|a, b| {
+                                        b.active_connections.cmp(&a.active_connections)
+                                    });
+                                    ui_state.move_service_selection_up(&listeners_sorted);
                                 }
                             }
                         }
@@ -776,12 +816,19 @@ where
                                 && mouse.column < scroll_area.x + scroll_area.width
                                 && mouse.row >= scroll_area.y
                                 && mouse.row < scroll_area.y + scroll_area.height
-                                && ui_state.selected_tab == 0
                             {
-                                if ui_state.grouping_enabled {
-                                    ui_state.move_selection_down_grouped(&grouped_rows);
-                                } else {
-                                    ui_state.move_selection_down(&connections);
+                                if ui_state.selected_tab == 0 {
+                                    if ui_state.grouping_enabled {
+                                        ui_state.move_selection_down_grouped(&grouped_rows);
+                                    } else {
+                                        ui_state.move_selection_down(&connections);
+                                    }
+                                } else if ui_state.selected_tab == 2 {
+                                    let mut listeners_sorted = listeners.clone();
+                                    listeners_sorted.sort_by(|a, b| {
+                                        b.active_connections.cmp(&a.active_connections)
+                                    });
+                                    ui_state.move_service_selection_down(&listeners_sorted);
                                 }
                             }
                         }
@@ -904,6 +951,11 @@ where
                                 ui_state.quit_confirmation = false;
                                 ui_state.clear_confirmation = false;
                                 ui_state.selected_tab = (ui_state.selected_tab + 1) % 7;
+                                if ui_state.selected_tab == 0 {
+                                    ui_state.details_view_mode = ui::DetailsViewMode::Connection;
+                                } else if ui_state.selected_tab == 2 {
+                                    ui_state.details_view_mode = ui::DetailsViewMode::Service;
+                                }
                             }
 
                             // Shift+Tab navigation (backward)
@@ -915,6 +967,11 @@ where
                                 } else {
                                     ui_state.selected_tab - 1
                                 };
+                                if ui_state.selected_tab == 0 {
+                                    ui_state.details_view_mode = ui::DetailsViewMode::Connection;
+                                } else if ui_state.selected_tab == 2 {
+                                    ui_state.details_view_mode = ui::DetailsViewMode::Service;
+                                }
                             }
 
                             // Help toggle
@@ -944,7 +1001,13 @@ where
                             (KeyCode::Up, _) | (KeyCode::Char('k'), _) => {
                                 ui_state.quit_confirmation = false;
                                 ui_state.clear_confirmation = false;
-                                if ui_state.grouping_enabled {
+                                if ui_state.selected_tab == 2 {
+                                    let mut listeners_sorted = listeners.clone();
+                                    listeners_sorted.sort_by(|a, b| {
+                                        b.active_connections.cmp(&a.active_connections)
+                                    });
+                                    ui_state.move_service_selection_up(&listeners_sorted);
+                                } else if ui_state.grouping_enabled {
                                     debug!(
                                         "Navigation UP (grouped): {} rows available",
                                         grouped_rows.len()
@@ -962,7 +1025,13 @@ where
                             (KeyCode::Down, _) | (KeyCode::Char('j'), _) => {
                                 ui_state.quit_confirmation = false;
                                 ui_state.clear_confirmation = false;
-                                if ui_state.grouping_enabled {
+                                if ui_state.selected_tab == 2 {
+                                    let mut listeners_sorted = listeners.clone();
+                                    listeners_sorted.sort_by(|a, b| {
+                                        b.active_connections.cmp(&a.active_connections)
+                                    });
+                                    ui_state.move_service_selection_down(&listeners_sorted);
+                                } else if ui_state.grouping_enabled {
                                     debug!(
                                         "Navigation DOWN (grouped): {} rows available",
                                         grouped_rows.len()
@@ -982,7 +1051,15 @@ where
                                 ui_state.quit_confirmation = false;
                                 ui_state.clear_confirmation = false;
                                 let page_size = ui_state.visible_rows.max(1);
-                                if ui_state.grouping_enabled {
+                                if ui_state.selected_tab == 2 {
+                                    let mut listeners_sorted = listeners.clone();
+                                    listeners_sorted.sort_by(|a, b| {
+                                        b.active_connections.cmp(&a.active_connections)
+                                    });
+                                    for _ in 0..page_size {
+                                        ui_state.move_service_selection_up(&listeners_sorted);
+                                    }
+                                } else if ui_state.grouping_enabled {
                                     ui_state
                                         .move_selection_page_up_grouped(&grouped_rows, page_size);
                                 } else {
@@ -995,7 +1072,15 @@ where
                                 ui_state.quit_confirmation = false;
                                 ui_state.clear_confirmation = false;
                                 let page_size = ui_state.visible_rows.max(1);
-                                if ui_state.grouping_enabled {
+                                if ui_state.selected_tab == 2 {
+                                    let mut listeners_sorted = listeners.clone();
+                                    listeners_sorted.sort_by(|a, b| {
+                                        b.active_connections.cmp(&a.active_connections)
+                                    });
+                                    for _ in 0..page_size {
+                                        ui_state.move_service_selection_down(&listeners_sorted);
+                                    }
+                                } else if ui_state.grouping_enabled {
                                     ui_state
                                         .move_selection_page_down_grouped(&grouped_rows, page_size);
                                 } else {
@@ -1007,15 +1092,34 @@ where
                             (KeyCode::Char('g'), KeyModifiers::NONE) => {
                                 ui_state.quit_confirmation = false;
                                 ui_state.clear_confirmation = false;
-                                // Jump to first connection (vim-style 'g')
-                                ui_state.move_selection_to_first(&connections);
+                                if ui_state.selected_tab == 2 {
+                                    let mut listeners_sorted = listeners.clone();
+                                    listeners_sorted.sort_by(|a, b| {
+                                        b.active_connections.cmp(&a.active_connections)
+                                    });
+                                    ui_state.set_selected_service_by_index(&listeners_sorted, 0);
+                                } else {
+                                    // Jump to first connection (vim-style 'g')
+                                    ui_state.move_selection_to_first(&connections);
+                                }
                             }
 
                             (KeyCode::Char('G'), _) | (KeyCode::Char('g'), KeyModifiers::SHIFT) => {
                                 ui_state.quit_confirmation = false;
                                 ui_state.clear_confirmation = false;
-                                // Jump to last connection (vim-style 'G')
-                                ui_state.move_selection_to_last(&connections);
+                                if ui_state.selected_tab == 2 {
+                                    let mut listeners_sorted = listeners.clone();
+                                    listeners_sorted.sort_by(|a, b| {
+                                        b.active_connections.cmp(&a.active_connections)
+                                    });
+                                    ui_state.set_selected_service_by_index(
+                                        &listeners_sorted,
+                                        listeners_sorted.len().saturating_sub(1),
+                                    );
+                                } else {
+                                    // Jump to last connection (vim-style 'G')
+                                    ui_state.move_selection_to_last(&connections);
+                                }
                             }
 
                             // Enter to view details (only works on connections, not group headers)
@@ -1027,6 +1131,11 @@ where
                                     && !(ui_state.grouping_enabled && ui_state.is_group_selected())
                                 {
                                     // Switch to details view when on a connection (not a group header)
+                                    ui_state.details_view_mode = ui::DetailsViewMode::Connection;
+                                    ui_state.selected_tab = 3;
+                                } else if ui_state.selected_tab == 2 && !listeners.is_empty() {
+                                    // Switch to details view when on a service
+                                    ui_state.details_view_mode = ui::DetailsViewMode::Service;
                                     ui_state.selected_tab = 3;
                                 }
                             }

@@ -455,6 +455,8 @@ pub enum ClickAction {
     SwitchTab(usize),
     /// Select a connection by index in the current sorted/filtered list
     SelectConnection(usize),
+    /// Select a service by index in the services list
+    SelectService(usize),
     /// Copy a field value to clipboard (label for feedback, value for clipboard)
     CopyField { label: String, value: String },
 }
@@ -494,9 +496,17 @@ impl ClickableRegions {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DetailsViewMode {
+    Connection,
+    Service,
+}
+
 /// UI state for managing the interface
 pub struct UIState {
     pub selected_tab: usize,
+    /// Selected details view mode (Connection or Service)
+    pub details_view_mode: DetailsViewMode,
     pub selected_connection_key: Option<String>,
     pub show_help: bool,
     pub quit_confirmation: bool,
@@ -516,6 +526,8 @@ pub struct UIState {
     pub expanded_groups: HashSet<String>,
     /// Selected group name when in grouped view (for group-level selection)
     pub selected_group: Option<String>,
+    /// Selected service key (protocol:local_addr)
+    pub selected_service_key: Option<String>,
     /// Whether GeoIP country database is available (enables Location sort column)
     pub has_geoip: bool,
     /// Last mouse click position and time, for double-click detection
@@ -528,12 +540,15 @@ pub struct UIState {
     pub scroll_offset: usize,
     /// Scroll offset for grouped connection list (persisted for stable scrolling)
     pub grouped_scroll_offset: usize,
+    /// Scroll offset for services list
+    pub services_scroll_offset: usize,
 }
 
 impl Default for UIState {
     fn default() -> Self {
         Self {
             selected_tab: 0,
+            details_view_mode: DetailsViewMode::Connection,
             selected_connection_key: None,
             show_help: false,
             quit_confirmation: false,
@@ -549,12 +564,14 @@ impl Default for UIState {
             grouping_enabled: false,
             expanded_groups: HashSet::new(),
             selected_group: None,
+            selected_service_key: None,
             has_geoip: false,
             last_click: None,
             show_historic: false,
             visible_rows: 10,
             scroll_offset: 0,
             grouped_scroll_offset: 0,
+            services_scroll_offset: 0,
         }
     }
 }
@@ -602,6 +619,52 @@ impl UIState {
     pub fn set_selected_by_index(&mut self, connections: &[Connection], index: usize) {
         if let Some(conn) = connections.get(index) {
             self.selected_connection_key = Some(conn.key());
+        }
+    }
+
+    /// Get the current selected service index, if any
+    pub fn get_selected_service_index(&self, listeners: &[Listener]) -> Option<usize> {
+        if let Some(ref selected_key) = self.selected_service_key {
+            listeners
+                .iter()
+                .position(|l| format!("{}:{}", l.protocol, l.local_addr) == *selected_key)
+        } else if !listeners.is_empty() {
+            Some(0)
+        } else {
+            None
+        }
+    }
+
+    /// Set the selected service to the one at the given index
+    pub fn set_selected_service_by_index(&mut self, listeners: &[Listener], index: usize) {
+        if let Some(l) = listeners.get(index) {
+            self.selected_service_key = Some(format!("{}:{}", l.protocol, l.local_addr));
+        }
+    }
+
+    /// Move service selection up
+    pub fn move_service_selection_up(&mut self, listeners: &[Listener]) {
+        if listeners.is_empty() {
+            return;
+        }
+        let current_index = self.get_selected_service_index(listeners).unwrap_or(0);
+        if current_index > 0 {
+            self.set_selected_service_by_index(listeners, current_index - 1);
+        } else {
+            self.set_selected_service_by_index(listeners, listeners.len() - 1);
+        }
+    }
+
+    /// Move service selection down
+    pub fn move_service_selection_down(&mut self, listeners: &[Listener]) {
+        if listeners.is_empty() {
+            return;
+        }
+        let current_index = self.get_selected_service_index(listeners).unwrap_or(0);
+        if current_index < listeners.len().saturating_sub(1) {
+            self.set_selected_service_by_index(listeners, current_index + 1);
+        } else {
+            self.set_selected_service_by_index(listeners, 0);
         }
     }
 
@@ -1137,17 +1200,25 @@ pub fn draw(
             draw_overview(f, &ctx, content_area, click_regions)?;
         }
         1 => draw_devices(f, app, content_area)?,
-        2 => draw_services(f, app, content_area)?,
+        2 => draw_services(f, app, ui_state, content_area, click_regions)?,
         3 => {
-            let dns_resolver = app.get_dns_resolver();
-            draw_connection_details(
-                f,
-                ui_state,
-                connections,
-                content_area,
-                dns_resolver.as_deref(),
-                click_regions,
-            )?
+            let listeners = app.get_listeners();
+            match ui_state.details_view_mode {
+                DetailsViewMode::Connection => {
+                    let dns_resolver = app.get_dns_resolver();
+                    draw_connection_details(
+                        f,
+                        ui_state,
+                        connections,
+                        content_area,
+                        dns_resolver.as_deref(),
+                        click_regions,
+                    )?
+                }
+                DetailsViewMode::Service => {
+                    draw_service_details(f, ui_state, &listeners, content_area, click_regions)?
+                }
+            }
         }
         4 => draw_interface_stats(f, app, content_area)?,
         5 => draw_graph_tab(f, app, connections, content_area)?,
@@ -3231,6 +3302,98 @@ fn push_detail_section_styled<'a>(
     fields.push(None);
 }
 
+fn draw_service_details(
+    f: &mut Frame,
+    ui_state: &UIState,
+    listeners: &[Listener],
+    area: Rect,
+    click_regions: &mut ClickableRegions,
+) -> Result<()> {
+    if listeners.is_empty() {
+        return Ok(());
+    }
+
+    let mut listeners_sorted = listeners.to_vec();
+    listeners_sorted.sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
+
+    let listener_idx = ui_state
+        .get_selected_service_index(&listeners_sorted)
+        .unwrap_or(0);
+    let listener = &listeners_sorted[listener_idx];
+
+    let label_style = theme::fg(theme::label());
+    let mut details_text: Vec<Line> = Vec::new();
+    let mut detail_fields: Vec<Option<(String, String)>> = Vec::new();
+
+    push_detail_field(
+        &mut details_text,
+        &mut detail_fields,
+        "Protocol",
+        listener.protocol.to_string(),
+        label_style,
+    );
+    push_detail_field_styled(
+        &mut details_text,
+        &mut detail_fields,
+        "Local Address",
+        listener.local_addr.to_string(),
+        label_style,
+        theme::fg(theme::field_local_addr()),
+    );
+    push_detail_field_styled(
+        &mut details_text,
+        &mut detail_fields,
+        "Process",
+        listener
+            .process_name
+            .clone()
+            .unwrap_or_else(|| NONE_PLACEHOLDER.to_string()),
+        label_style,
+        theme::fg(theme::field_process()),
+    );
+    push_detail_field(
+        &mut details_text,
+        &mut detail_fields,
+        "PID",
+        listener
+            .pid
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| NONE_PLACEHOLDER.to_string()),
+        label_style,
+    );
+    push_detail_field_styled(
+        &mut details_text,
+        &mut detail_fields,
+        "Service",
+        listener
+            .service_name
+            .clone()
+            .unwrap_or_else(|| NONE_PLACEHOLDER.to_string()),
+        label_style,
+        theme::fg(theme::field_service()),
+    );
+    push_detail_field_styled(
+        &mut details_text,
+        &mut detail_fields,
+        "Active Connections",
+        listener.active_connections.to_string(),
+        label_style,
+        theme::fg(theme::ok()),
+    );
+
+    let details_block = panel_block(format!(" Service Details: {} ", listener.local_addr));
+    let inner = details_block.inner(area);
+    f.render_widget(details_block, area);
+
+    let paragraph = Paragraph::new(details_text).wrap(Wrap { trim: true });
+    f.render_widget(paragraph, inner);
+
+    // Register click regions for copying
+    register_detail_clicks(click_regions, area, &detail_fields, false);
+
+    Ok(())
+}
+
 fn draw_connection_details(
     f: &mut Frame,
     ui_state: &UIState,
@@ -5046,10 +5209,63 @@ mod tests {
         );
         assert_eq!(ui_state.selected_connection_key, Some(connections[0].key()));
     }
+
+    #[test]
+    fn test_service_selection() {
+        use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+        let mut ui_state = UIState::default();
+        let listeners = vec![
+            Listener {
+                protocol: Protocol::Tcp,
+                local_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 80),
+                pid: Some(123),
+                process_name: Some("httpd".to_string()),
+                service_name: Some("http".to_string()),
+                active_connections: 5,
+            },
+            Listener {
+                protocol: Protocol::Tcp,
+                local_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 443),
+                pid: Some(123),
+                process_name: Some("httpd".to_string()),
+                service_name: Some("https".to_string()),
+                active_connections: 10,
+            },
+        ];
+
+        // Default selection: index 0
+        assert_eq!(ui_state.get_selected_service_index(&listeners), Some(0));
+
+        // Move down
+        ui_state.move_service_selection_down(&listeners);
+        assert_eq!(ui_state.get_selected_service_index(&listeners), Some(1));
+
+        // Move down again (wrap)
+        ui_state.move_service_selection_down(&listeners);
+        assert_eq!(ui_state.get_selected_service_index(&listeners), Some(0));
+
+        // Move up (wrap)
+        ui_state.move_service_selection_up(&listeners);
+        assert_eq!(ui_state.get_selected_service_index(&listeners), Some(1));
+
+        // Set by index
+        ui_state.set_selected_service_by_index(&listeners, 0);
+        assert_eq!(
+            ui_state.selected_service_key,
+            Some("TCP:0.0.0.0:80".to_string())
+        );
+    }
 }
 
 /// Draw the Services/Listeners tab
-fn draw_services(f: &mut Frame, app: &App, area: Rect) -> Result<()> {
+fn draw_services(
+    f: &mut Frame,
+    app: &App,
+    ui_state: &UIState,
+    area: Rect,
+    click_regions: &mut ClickableRegions,
+) -> Result<()> {
     let listeners = app.get_listeners();
 
     let main_chunks = Layout::default()
@@ -5061,7 +5277,7 @@ fn draw_services(f: &mut Frame, app: &App, area: Rect) -> Result<()> {
         .split(area);
 
     draw_services_summary(f, &listeners, main_chunks[0]);
-    draw_listeners_table(f, &listeners, main_chunks[1]);
+    draw_listeners_table(f, ui_state, &listeners, main_chunks[1], click_regions);
 
     Ok(())
 }
@@ -5164,7 +5380,13 @@ fn draw_services_summary(f: &mut Frame, listeners: &[Listener], area: Rect) {
     f.render_widget(Paragraph::new(services_lines), services_inner);
 }
 
-fn draw_listeners_table(f: &mut Frame, listeners: &[Listener], area: Rect) {
+fn draw_listeners_table(
+    f: &mut Frame,
+    ui_state: &UIState,
+    listeners: &[Listener],
+    area: Rect,
+    click_regions: &mut ClickableRegions,
+) {
     let header_style = theme::fg(theme::heading());
     let header = Row::new(vec![
         Cell::from(" Protocol"),
@@ -5179,52 +5401,98 @@ fn draw_listeners_table(f: &mut Frame, listeners: &[Listener], area: Rect) {
     let mut listeners_sorted = listeners.to_vec();
     listeners_sorted.sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
 
-    let rows: Vec<Row> = listeners_sorted.iter().map(|l| {
-        let (proto_icon, icon_color) = match l.protocol {
-            Protocol::Tcp => ("🔑 ", theme::fg(Color::Yellow)),
-            Protocol::Udp => ("🔗 ", theme::fg(Color::Cyan)),
-            _ => ("  ", theme::fg(Color::Reset)),
-        };
+    // Virtualization: only build Row objects for the visible window
+    let scroll_offset = ui_state.services_scroll_offset;
+    let visible_rows = ui_state.visible_rows.max(1);
+    let window_end = (scroll_offset + visible_rows + 1).min(listeners_sorted.len());
+    let visible_listeners = &listeners_sorted[scroll_offset.min(listeners_sorted.len())..window_end];
 
-        let proto_color = match l.protocol {
-            Protocol::Tcp => theme::tcp_established(),
-            Protocol::Udp => Color::Cyan,
-            _ => Color::Reset,
-        };
+    let rows: Vec<Row> = visible_listeners
+        .iter()
+        .map(|l| {
+            let (proto_icon, icon_color) = match l.protocol {
+                Protocol::Tcp => ("🔑 ", theme::fg(Color::Yellow)),
+                Protocol::Udp => ("🔗 ", theme::fg(Color::Cyan)),
+                _ => ("  ", theme::fg(Color::Reset)),
+            };
 
-        let active_style = if l.active_connections > 0 {
-            theme::fg(theme::ok())
-        } else {
-            theme::fg(theme::muted())
-        };
+            let proto_color = match l.protocol {
+                Protocol::Tcp => theme::tcp_established(),
+                Protocol::Udp => Color::Cyan,
+                _ => Color::Reset,
+            };
 
-        Row::new(vec![
-            Cell::from(Line::from(vec![
-                Span::styled(proto_icon, icon_color),
-                Span::styled(l.protocol.to_string(), theme::fg(proto_color)),
-            ])),
-            Cell::from(l.local_addr.to_string()),
-            Cell::from(l.service_name.as_deref().unwrap_or("unknown")),
-            Cell::from(format!("{} ({})", l.process_name.as_deref().unwrap_or("unknown"), l.pid.unwrap_or(0))),
-            Cell::from(Line::from(vec![
-                Span::styled(" ● ", active_style),
-                Span::raw(l.active_connections.to_string()),
-            ])),
-        ])
-    }).collect();
+            let active_style = if l.active_connections > 0 {
+                theme::fg(theme::ok())
+            } else {
+                theme::fg(theme::muted())
+            };
 
-    let table = Table::new(rows, [
-        Constraint::Length(12),
-        Constraint::Length(25),
-        Constraint::Length(15),
-        Constraint::Min(20),
-        Constraint::Length(10),
-    ])
+            Row::new(vec![
+                Cell::from(Line::from(vec![
+                    Span::styled(proto_icon, icon_color),
+                    Span::styled(l.protocol.to_string(), theme::fg(proto_color)),
+                ])),
+                Cell::from(l.local_addr.to_string()),
+                Cell::from(l.service_name.as_deref().unwrap_or("unknown")),
+                Cell::from(format!(
+                    "{} ({})",
+                    l.process_name.as_deref().unwrap_or("unknown"),
+                    l.pid.unwrap_or(0)
+                )),
+                Cell::from(Line::from(vec![
+                    Span::styled(" ● ", active_style),
+                    Span::raw(l.active_connections.to_string()),
+                ])),
+            ])
+        })
+        .collect();
+
+    // Create table state with selection adjusted to windowed slice
+    let mut state = ratatui::widgets::TableState::default();
+    if let Some(selected_index) = ui_state.get_selected_service_index(&listeners_sorted) {
+        state.select(Some(selected_index.saturating_sub(scroll_offset)));
+    }
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(12),
+            Constraint::Length(25),
+            Constraint::Length(15),
+            Constraint::Min(20),
+            Constraint::Length(10),
+        ],
+    )
     .header(header)
-    .block(panel_block(format!(" TCP/UDP SERVICES ({}) ", listeners.len())))
-    .row_highlight_style(theme::row_highlight());
+    .block(panel_block(format!(
+        " TCP/UDP SERVICES ({}) ",
+        listeners.len()
+    )))
+    .row_highlight_style(theme::row_highlight())
+    .highlight_symbol("> ");
 
-    f.render_widget(table, area);
+    f.render_stateful_widget(table, area, &mut state);
+
+    // Register click regions for visible service rows
+    click_regions.scroll_area = Some(area);
+    let inner = area.inner(ratatui::layout::Margin {
+        horizontal: 1,
+        vertical: 1,
+    });
+    let header_height = 1_u16;
+    let visible_start_y = inner.y + header_height;
+    let max_visible_rows = inner.height.saturating_sub(header_height) as usize;
+
+    for i in 0..max_visible_rows {
+        let service_idx = scroll_offset + i;
+        if service_idx >= listeners_sorted.len() {
+            break;
+        }
+        let row_y = visible_start_y + i as u16;
+        let row_rect = Rect::new(inner.x, row_y, inner.width, 1);
+        click_regions.register(row_rect, ClickAction::SelectService(service_idx));
+    }
 }
 
 /// Draw the Devices tab for LAN discovery
