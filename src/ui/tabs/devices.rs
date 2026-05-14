@@ -23,7 +23,75 @@ pub fn draw_devices(
     draw_devices_summary(f, app, &devices, main_chunks[0]);
     draw_devices_table(f, app, ui_state, &devices, main_chunks[1], click_regions);
 
+    if ui_state.show_device_modal {
+        if let Some(idx) = ui_state.get_selected_device_index(&devices) {
+            if let Some(device) = devices.get(idx) {
+                draw_device_modal(f, device);
+            }
+        }
+    }
+
     Ok(())
+}
+
+fn draw_device_modal(f: &mut Frame, device: &Device) {
+    use crate::ui::components::{centered_rect, Clear};
+    let area = centered_rect(60, 50, f.area());
+    f.render_widget(Clear, area);
+
+    let block = panel_block(format!(" Device Details: {} ", device.ip));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let mut rows = Vec::new();
+    let label_style = fg(label());
+    let value_style = fg(primary());
+
+    let mut add_row = |label: &str, value: String, style: Style| {
+        rows.push(Row::new(vec![
+            Cell::from(Span::styled(format!("{}:", label), label_style)),
+            Cell::from(Span::styled(value, style)),
+        ]));
+    };
+
+    add_row("IP Address", device.ip.to_string(), value_style);
+    add_row("MAC Address", device.mac.clone(), value_style);
+    add_row(
+        "Vendor",
+        device.vendor.clone().unwrap_or_else(|| "—".to_string()),
+        fg(accent()),
+    );
+    add_row(
+        "Hostname",
+        device.hostname.clone().unwrap_or_else(|| "—".to_string()),
+        fg(ok()),
+    );
+    add_row("Status", if device.is_online { "ONLINE".to_string() } else { "OFFLINE".to_string() }, if device.is_online { fg(ok()) } else { fg(muted()) });
+    add_row("First Seen", format_system_time(device.first_seen), fg(muted()));
+    add_row("Last Seen", format_system_time(device.last_seen), fg(muted()));
+    add_row("Total Recv", format_bytes(device.bytes_received), fg(rx()));
+    add_row("Total Sent", format_bytes(device.bytes_sent), fg(tx()));
+
+    if !device.open_ports.is_empty() {
+        let ports: Vec<String> = device.open_ports.iter()
+            .map(|(p, s)| if s.is_empty() { p.to_string() } else { format!("{}:{}", p, s) })
+            .collect();
+        add_row("Open Ports", ports.join(", "), value_style);
+    }
+
+    if !device.discovery_details.is_empty() {
+        let details: Vec<String> = device.discovery_details.iter().cloned().collect();
+        add_row("Discovery", details.join(", "), fg(muted()));
+    }
+
+    let table = Table::new(rows, [Constraint::Length(15), Constraint::Min(0)]).style(Style::default());
+    f.render_widget(table, inner);
+
+    let help = Paragraph::new(" Press Esc or Enter to close ")
+        .alignment(Alignment::Center)
+        .style(fg(muted()));
+    let help_area = Rect::new(inner.x, inner.y + inner.height - 1, inner.width, 1);
+    f.render_widget(help, help_area);
 }
 
 fn draw_devices_summary(f: &mut Frame, app: &App, devices: &[Device], area: Rect) {

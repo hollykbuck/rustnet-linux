@@ -23,7 +23,70 @@ pub fn draw_services(
     draw_services_summary(f, &listeners, main_chunks[0]);
     draw_listeners_table(f, ui_state, &listeners, main_chunks[1], click_regions);
 
+    if ui_state.show_service_modal {
+        let mut listeners_sorted = listeners.clone();
+        listeners_sorted.sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
+        if let Some(idx) = ui_state.get_selected_service_index(&listeners_sorted) {
+            if let Some(listener) = listeners_sorted.get(idx) {
+                draw_service_modal(f, listener);
+            }
+        }
+    }
+
     Ok(())
+}
+
+fn draw_service_modal(f: &mut Frame, listener: &Listener) {
+    use crate::ui::components::{centered_rect, Clear};
+    let area = centered_rect(60, 40, f.area());
+    f.render_widget(Clear, area);
+
+    let block = panel_block(format!(" Service Details: {} ", listener.local_addr));
+    let inner = block.inner(area);
+    f.render_widget(block, area);
+
+    let mut rows = Vec::new();
+    let label_style = fg(label());
+    let value_style = fg(primary());
+
+    let mut add_row = |label: &str, value: String, style: Style| {
+        rows.push(Row::new(vec![
+            Cell::from(Span::styled(format!("{}:", label), label_style)),
+            Cell::from(Span::styled(value, style)),
+        ]));
+    };
+
+    add_row("Protocol", listener.protocol.to_string(), value_style);
+    add_row("Local Address", listener.local_addr.to_string(), value_style);
+    add_row(
+        "Service Name",
+        listener.service_name.clone().unwrap_or_else(|| "unknown".to_string()),
+        fg(accent()),
+    );
+    add_row(
+        "Process Name",
+        listener.process_name.clone().unwrap_or_else(|| "unknown".to_string()),
+        fg(ok()),
+    );
+    add_row(
+        "PID",
+        listener.pid.map(|p| p.to_string()).unwrap_or_else(|| "unknown".to_string()),
+        fg(muted()),
+    );
+    add_row(
+        "Active Conns",
+        listener.active_connections.to_string(),
+        if listener.active_connections > 0 { fg(ok()) } else { fg(muted()) },
+    );
+
+    let table = Table::new(rows, [Constraint::Length(15), Constraint::Min(0)]).style(Style::default());
+    f.render_widget(table, inner);
+
+    let help = Paragraph::new(" Press Esc or Enter to close ")
+        .alignment(Alignment::Center)
+        .style(fg(muted()));
+    let help_area = Rect::new(inner.x, inner.y + inner.height - 1, inner.width, 1);
+    f.render_widget(help, help_area);
 }
 
 fn draw_services_summary(f: &mut Frame, listeners: &[Listener], area: Rect) {

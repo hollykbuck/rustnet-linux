@@ -42,6 +42,7 @@ pub fn draw_routes_tab(
     }
 
     let mut rows = Vec::new();
+    let mut row_actions = Vec::new();
     let mut display_routes = Vec::new();
 
     if ui_state.grouping_enabled {
@@ -73,12 +74,13 @@ pub fn draw_routes_tab(
                 ])
                 .style(Style::default()),
             );
-            // We need a dummy entry in display_routes to keep indexes in sync for clicks
-            display_routes.push(None);
+            row_actions.push(ClickAction::SelectRoute(row_actions.len()));
+            display_routes.push(None); // Header doesn't have a specific route for modal
 
             if expanded {
                 for route in group_routes {
                     rows.push(format_route_row(&route, true));
+                    row_actions.push(ClickAction::SelectRoute(row_actions.len()));
                     display_routes.push(Some(route));
                 }
             }
@@ -86,15 +88,17 @@ pub fn draw_routes_tab(
     } else {
         for route in routes {
             rows.push(format_route_row(&route, false));
+            row_actions.push(ClickAction::SelectRoute(row_actions.len()));
             display_routes.push(Some(route));
         }
     }
 
     // Register click regions
-    for (i, _) in rows.iter().enumerate() {
+    let header_height = 3; // Block title + Table header
+    for (i, action) in row_actions.iter().enumerate() {
         click_regions.register(
-            Rect::new(area.x, area.y + 3 + i as u16, area.width, 1),
-            ClickAction::SelectRoute(i),
+            Rect::new(area.x, area.y + header_height + i as u16, area.width, 1),
+            action.clone(),
         );
     }
 

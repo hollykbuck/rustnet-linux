@@ -29,6 +29,8 @@ pub struct UIState {
     pub show_interface_modal: bool,
     pub selected_route_index: Option<usize>,
     pub show_route_modal: bool,
+    pub show_device_modal: bool,
+    pub show_service_modal: bool,
     pub selected_group: Option<String>,
     pub scroll_offset: usize,
     pub grouped_scroll_offset: usize,
@@ -160,6 +162,8 @@ impl Default for UIState {
             show_interface_modal: false,
             selected_route_index: None,
             show_route_modal: false,
+            show_device_modal: false,
+            show_service_modal: false,
             selected_group: None,
             scroll_offset: 0,
             grouped_scroll_offset: 0,
@@ -343,31 +347,29 @@ fn draw_tabs(f: &mut Frame, ui_state: &UIState, area: Rect, click_regions: &mut 
         "Graph",
         "Help",
     ];
-    let tabs = Tabs::new(
-        titles
-            .iter()
-            .cloned()
-            .map(|t| format!(" {t} "))
-            .map(Line::from)
-            .collect::<Vec<_>>(),
-    )
-    .block(
-        Block::default()
-            .borders(Borders::ALL)
-            .border_style(fg(muted())),
-    )
-    .select(ui_state.selected_tab)
-    .style(fg(muted()))
-    .highlight_style(fg(primary()).add_modifier(Modifier::REVERSED));
+    let tabs = Tabs::new(titles.to_vec())
+        .divider("")
+        .padding(" ", " ")
+        .block(
+            Block::default()
+                .borders(Borders::ALL)
+                .border_style(fg(muted())),
+        )
+        .select(ui_state.selected_tab)
+        .style(fg(muted()))
+        .highlight_style(fg(primary()).add_modifier(Modifier::REVERSED));
 
     f.render_widget(tabs, area);
 
-    let tab_width = area.width / titles.len() as u16;
-    for i in 0..titles.len() {
+    // Register click regions based on actual label widths (title + padding)
+    let mut current_x = area.x + 1; // +1 for left border
+    for (i, title) in titles.iter().enumerate() {
+        let width = (title.len() + 2) as u16; // title + 2 spaces padding
         click_regions.register(
-            Rect::new(area.x + i as u16 * tab_width, area.y, tab_width, 3),
+            Rect::new(current_x, area.y, width, 3),
             ClickAction::SwitchTab(i),
         );
+        current_x += width;
     }
 }
 

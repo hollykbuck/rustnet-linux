@@ -2,6 +2,7 @@ use crate::app::App;
 use crate::ui::*;
 use anyhow::Result;
 use log::error;
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
 /// Run the UI loop
@@ -223,6 +224,10 @@ fn handle_mouse_event(
         MouseEventKind::Down(MouseButton::Left) => {
             ui_state.quit_confirmation = false;
             ui_state.clear_confirmation = false;
+            ui_state.show_interface_modal = false;
+            ui_state.show_route_modal = false;
+            ui_state.show_device_modal = false;
+            ui_state.show_service_modal = false;
 
             let is_double_click = if let Some((_, prev_row, prev_time)) = ui_state.last_click {
                 prev_row == mouse.row && prev_time.elapsed().as_millis() < 400
@@ -272,7 +277,7 @@ fn handle_mouse_event(
                             .sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
                         ui_state.set_selected_service_by_index(&listeners_sorted, service_idx);
                         if is_double_click {
-                            ui_state.selected_tab = 3;
+                            ui_state.show_service_modal = true;
                         }
                     }
                     ClickAction::SelectDevice(device_idx) => {
@@ -281,7 +286,7 @@ fn handle_mouse_event(
                         devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
                         ui_state.set_selected_device_by_index(&devices_sorted, device_idx);
                         if is_double_click {
-                            ui_state.selected_tab = 3;
+                            ui_state.show_device_modal = true;
                         }
                     }
                     ClickAction::SelectInterface(idx) => {
@@ -291,7 +296,44 @@ fn handle_mouse_event(
                     }
                     ClickAction::SelectRoute(idx) => {
                         ui_state.selected_route_index = Some(idx);
-                        ui_state.show_route_modal = true;
+                        if ui_state.grouping_enabled && is_double_click {
+                            // If double-clicking in grouped mode, try to toggle expansion or open modal
+                            // We need to re-derive the routes and groupings to know what was clicked
+                            let routes = app.get_routes();
+                            let mut groups: HashMap<String, Vec<crate::network::types::RouteEntry>> =
+                                HashMap::new();
+                            for r in routes {
+                                groups.entry(r.interface.clone()).or_default().push(r);
+                            }
+                            let mut group_names: Vec<String> = groups.keys().cloned().collect();
+                            group_names.sort_by_key(|n| n.to_lowercase());
+
+                            let mut current_idx = 0;
+                            for name in group_names {
+                                if current_idx == idx {
+                                    // Clicked on group header
+                                    if ui_state.expanded_groups.contains(&name) {
+                                        ui_state.expanded_groups.remove(&name);
+                                    } else {
+                                        ui_state.expanded_groups.insert(name);
+                                    }
+                                    *needs_regroup = true;
+                                    return;
+                                }
+                                current_idx += 1;
+                                if ui_state.expanded_groups.contains(&name) {
+                                    let group_routes_len = groups.get(&name).unwrap().len();
+                                    if idx > current_idx && idx < current_idx + group_routes_len {
+                                        // Clicked on a route in this group
+                                        ui_state.show_route_modal = true;
+                                        return;
+                                    }
+                                    current_idx += group_routes_len;
+                                }
+                            }
+                        } else if is_double_click {
+                            ui_state.show_route_modal = true;
+                        }
                     }
                     ClickAction::CopyField { label, value } => {
                         copy_to_clipboard(&value, &format!("{}: {}", label, value), ui_state, app);
@@ -437,7 +479,7 @@ fn handle_key_event(
             }
             (KeyCode::Char('h'), _) => {
                 ui_state.show_help = !ui_state.show_help;
-                ui_state.selected_tab = if ui_state.show_help { 6 } else { 0 };
+                ui_state.selected_tab = if ui_state.show_help { 7 } else { 0 };
             }
             (KeyCode::Char('i'), _) | (KeyCode::Char('I'), _) => {
                 ui_state.selected_tab = if ui_state.selected_tab == 4 { 0 } else { 4 };
@@ -568,6 +610,10 @@ fn handle_key_event(
                     ui_state.show_interface_modal = false;
                 } else if ui_state.show_route_modal {
                     ui_state.show_route_modal = false;
+                } else if ui_state.show_device_modal {
+                    ui_state.show_device_modal = false;
+                } else if ui_state.show_service_modal {
+                    ui_state.show_service_modal = false;
                 } else if ui_state.selected_tab == 4 {
                     ui_state.show_interface_modal = true;
                 } else if ui_state.selected_tab == 5 {
@@ -579,30 +625,108 @@ fn handle_key_event(
                     ui_state.details_view_mode = DetailsViewMode::Connection;
                     ui_state.selected_tab = 3;
                 } else if ui_state.selected_tab == 1 && !devices.is_empty() {
-                    ui_state.details_view_mode = DetailsViewMode::Device;
-                    ui_state.selected_tab = 3;
+                    ui_state.show_device_modal = true;
                 } else if ui_state.selected_tab == 2 && !listeners.is_empty() {
-                    ui_state.details_view_mode = DetailsViewMode::Service;
-                    ui_state.selected_tab = 3;
+                    ui_state.show_service_modal = true;
                 }
             }
-            (KeyCode::Char(' '), _)
+            (KeyCode::Char(' '), _) => {
                 if ui_state.selected_tab == 0
                     && ui_state.grouping_enabled
-                    && ui_state.is_group_selected() =>
-            {
-                ui_state.toggle_group_expansion();
-                *needs_regroup = true;
+                    && ui_state.is_group_selected()
+                {
+                    ui_state.toggle_group_expansion();
+                    *needs_regroup = true;
+                } else if ui_state.selected_tab == 5 && ui_state.grouping_enabled {
+                    if let Some(idx) = ui_state.selected_route_index {
+                        let routes = app.get_routes();
+                        let mut groups: HashMap<String, Vec<crate::network::types::RouteEntry>> =
+                            HashMap::new();
+                        for r in routes {
+                            groups.entry(r.interface.clone()).or_default().push(r);
+                        }
+                        let mut group_names: Vec<String> = groups.keys().cloned().collect();
+                        group_names.sort_by_key(|n| n.to_lowercase());
+
+                        let mut current_idx = 0;
+                        for name in group_names {
+                            if current_idx == idx {
+                                // Selected a group header
+                                if ui_state.expanded_groups.contains(&name) {
+                                    ui_state.expanded_groups.remove(&name);
+                                } else {
+                                    ui_state.expanded_groups.insert(name);
+                                }
+                                *needs_regroup = true;
+                                break;
+                            }
+                            current_idx += 1;
+                            if ui_state.expanded_groups.contains(&name) {
+                                current_idx += groups.get(&name).unwrap().len();
+                            }
+                        }
+                    }
+                }
             }
-            (KeyCode::Left, _) if ui_state.selected_tab == 0 && ui_state.grouping_enabled => {
-                ui_state.collapse_selected_group();
-                *needs_regroup = true;
+            (KeyCode::Left, _) if ui_state.grouping_enabled => {
+                if ui_state.selected_tab == 0 {
+                    ui_state.collapse_selected_group();
+                    *needs_regroup = true;
+                } else if ui_state.selected_tab == 5 {
+                    if let Some(idx) = ui_state.selected_route_index {
+                        let routes = app.get_routes();
+                        let mut groups: HashMap<String, Vec<crate::network::types::RouteEntry>> =
+                            HashMap::new();
+                        for r in routes {
+                            groups.entry(r.interface.clone()).or_default().push(r);
+                        }
+                        let mut group_names: Vec<String> = groups.keys().cloned().collect();
+                        group_names.sort_by_key(|n| n.to_lowercase());
+
+                        let mut current_idx = 0;
+                        for name in group_names {
+                            if current_idx == idx {
+                                ui_state.expanded_groups.remove(&name);
+                                *needs_regroup = true;
+                                break;
+                            }
+                            current_idx += 1;
+                            if ui_state.expanded_groups.contains(&name) {
+                                current_idx += groups.get(&name).unwrap().len();
+                            }
+                        }
+                    }
+                }
             }
-            (KeyCode::Right, _) | (KeyCode::Char('l'), _)
-                if ui_state.selected_tab == 0 && ui_state.grouping_enabled =>
-            {
-                ui_state.expand_selected_group();
-                *needs_regroup = true;
+            (KeyCode::Right, _) | (KeyCode::Char('l'), _) if ui_state.grouping_enabled => {
+                if ui_state.selected_tab == 0 {
+                    ui_state.expand_selected_group();
+                    *needs_regroup = true;
+                } else if ui_state.selected_tab == 5 {
+                    if let Some(idx) = ui_state.selected_route_index {
+                        let routes = app.get_routes();
+                        let mut groups: HashMap<String, Vec<crate::network::types::RouteEntry>> =
+                            HashMap::new();
+                        for r in routes {
+                            groups.entry(r.interface.clone()).or_default().push(r);
+                        }
+                        let mut group_names: Vec<String> = groups.keys().cloned().collect();
+                        group_names.sort_by_key(|n| n.to_lowercase());
+
+                        let mut current_idx = 0;
+                        for name in group_names {
+                            if current_idx == idx {
+                                ui_state.expanded_groups.insert(name);
+                                *needs_regroup = true;
+                                break;
+                            }
+                            current_idx += 1;
+                            if ui_state.expanded_groups.contains(&name) {
+                                current_idx += groups.get(&name).unwrap().len();
+                            }
+                        }
+                    }
+                }
             }
             (KeyCode::Char('a'), _) => {
                 ui_state.toggle_grouping();
@@ -657,6 +781,10 @@ fn handle_key_event(
                     ui_state.show_interface_modal = false;
                 } else if ui_state.show_route_modal {
                     ui_state.show_route_modal = false;
+                } else if ui_state.show_device_modal {
+                    ui_state.show_device_modal = false;
+                } else if ui_state.show_service_modal {
+                    ui_state.show_service_modal = false;
                 } else if !ui_state.filter_query.is_empty() {
                     ui_state.clear_filter();
                     *needs_data_refresh = true;
@@ -674,9 +802,10 @@ fn handle_key_event(
 }
 
 fn update_details_mode(ui_state: &mut UIState) {
-    if ui_state.selected_tab == 0 {
-        ui_state.details_view_mode = DetailsViewMode::Connection;
-    } else if ui_state.selected_tab == 2 {
-        ui_state.details_view_mode = DetailsViewMode::Service;
+    match ui_state.selected_tab {
+        0 => ui_state.details_view_mode = DetailsViewMode::Connection,
+        1 => ui_state.details_view_mode = DetailsViewMode::Device,
+        2 => ui_state.details_view_mode = DetailsViewMode::Service,
+        _ => {}
     }
 }
