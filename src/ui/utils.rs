@@ -1,7 +1,7 @@
 use arboard::Clipboard;
 use log::{error, info};
 use crate::app::App;
-use crate::ui::UIState;
+use crate::ui::*;
 
 /// Copy text to the system clipboard and update UI state with feedback.
 pub fn copy_to_clipboard(text: &str, display_msg: &str, ui_state: &mut UIState, app: &App) {

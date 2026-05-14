@@ -2,9 +2,7 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Chart, Dataset, GraphType, Sparkline, Paragraph, Table, Row, Cell, Axis};
 use crate::app::App;
 use crate::network::types::{Connection, Protocol, ProtocolState, TcpState, AppProtocolDistribution, TrafficHistory};
-use crate::ui::theme::theme;
-use crate::ui::components::panel_block;
-use crate::ui::utils::{format_rate, format_rate_compact};
+use crate::ui::*;
 
 pub fn draw_graph_tab(f: &mut Frame, app: &App, connections: &[Connection], area: Rect) -> anyhow::Result<()> {
     let active_connections: Vec<Connection> = connections
@@ -140,12 +138,12 @@ fn draw_app_distribution(f: &mut Frame, connections: &[Connection], area: Rect) 
         let filled = ((pct / 100.0) * bar_width as f64) as usize;
         let bar: String = "█".repeat(filled) + &"░".repeat(bar_width.saturating_sub(filled));
         let color = match label {
-            "HTTPS" => theme::proto_https(),
-            "QUIC" => theme::proto_quic(),
-            "HTTP" => theme::proto_http(),
-            "DNS" => theme::proto_dns(),
-            "SSH" => theme::proto_ssh(),
-            _ => theme::proto_other(),
+            "HTTPS" => proto_https(),
+            "QUIC" => proto_quic(),
+            "HTTP" => proto_http(),
+            "DNS" => proto_dns(),
+            "SSH" => proto_ssh(),
+            _ => proto_other(),
         };
         lines.push(Line::from(vec![
             Span::styled(format!("{:<width$}", label, width = LABEL_WIDTH), fg(color)),
@@ -215,7 +213,7 @@ fn draw_health_chart(f: &mut Frame, history: &TrafficHistory, area: Rect) {
         let rtt_pct = (rtt / RTT_MAX).min(1.0);
         let filled = (rtt_pct * bar_width as f64) as usize;
         let empty = bar_width.saturating_sub(filled);
-        let color = if rtt < 50.0 { theme::ok() } else if rtt < 150.0 { theme::warn() } else { theme::err() };
+        let color = if rtt < 50.0 { ok() } else if rtt < 150.0 { warn() } else { err() };
         Line::from(vec![Span::styled("  RTT  ", Style::default().add_modifier(Modifier::BOLD)), Span::styled("█".repeat(filled), fg(color)), Span::styled("░".repeat(empty), fg(muted())), Span::styled(format!(" {:>6.1}ms", rtt), fg(color))])
     } else {
         Line::from(vec![Span::styled("  RTT  ", Style::default().add_modifier(Modifier::BOLD)), Span::styled("░".repeat(bar_width), fg(muted())), Span::styled("    --  ", fg(muted()))])
@@ -224,8 +222,8 @@ fn draw_health_chart(f: &mut Frame, history: &TrafficHistory, area: Rect) {
     let loss_pct = (current_loss / LOSS_MAX).min(1.0);
     let filled = (loss_pct * bar_width as f64) as usize;
     let empty = bar_width.saturating_sub(filled);
-    let loss_color = if current_loss < 1.0 { theme::ok() } else if current_loss < 5.0 { theme::warn() } else { theme::err() };
-    let loss_line = Line::from(vec![Span::styled("  Loss ", Style::default().add_modifier(Modifier::BOLD)), Span::styled("█".repeat(filled.max(if current_loss > 0.0 { 1 } else { 0 })), theme::fg(loss_color)), Span::styled("░".repeat(empty.min(bar_width)), fg(muted())), Span::styled(format!(" {:>6.2}%", current_loss), theme::fg(loss_color))]);
+    let loss_color = if current_loss < 1.0 { ok() } else if current_loss < 5.0 { warn() } else { err() };
+    let loss_line = Line::from(vec![Span::styled("  Loss ", Style::default().add_modifier(Modifier::BOLD)), Span::styled("█".repeat(filled.max(if current_loss > 0.0 { 1 } else { 0 })), fg(loss_color)), Span::styled("░".repeat(empty.min(bar_width)), fg(muted())), Span::styled(format!(" {:>6.2}%", current_loss), fg(loss_color))]);
 
     let avg_line = Line::from(vec![Span::styled("  avg: ", fg(muted())), Span::styled(avg_rtt.map(|r| format!("{:.0}ms", r)).unwrap_or_else(|| "--".to_string()), fg(muted())), Span::styled(" / ", fg(muted())), Span::styled(format!("{:.2}%", avg_loss), fg(muted()))]);
 
@@ -242,9 +240,9 @@ fn draw_tcp_counters(f: &mut Frame, app: &App, area: Rect) {
     let inner = block.inner(area);
     f.render_widget(block, area);
 
-    let retrans_color = if retransmits == 0 { theme::ok() } else if retransmits < 100 { theme::warn() } else { theme::err() };
-    let ooo_color = if out_of_order == 0 { theme::ok() } else if out_of_order < 50 { theme::warn() } else { theme::err() };
-    let fast_color = if fast_retransmits == 0 { theme::ok() } else if fast_retransmits < 50 { theme::warn() } else { theme::err() };
+    let retrans_color = if retransmits == 0 { ok() } else if retransmits < 100 { warn() } else { err() };
+    let ooo_color = if out_of_order == 0 { ok() } else if out_of_order < 50 { warn() } else { err() };
+    let fast_color = if fast_retransmits == 0 { ok() } else if fast_retransmits < 50 { warn() } else { err() };
 
     let lines = vec![
         Line::from(vec![Span::styled("  Retransmits  ", Style::default().add_modifier(Modifier::BOLD)), Span::styled(format!("{:>8}", retransmits), fg(retrans_color))]),
@@ -294,11 +292,11 @@ fn draw_tcp_states(f: &mut Frame, connections: &[Connection], area: Rect) {
         let bar_len = (*count * bar_width).checked_div(max_count).unwrap_or(0);
         let bar = "█".repeat(bar_len.max(1).min(bar_width));
         let color = match *name {
-            "ESTAB" => theme::tcp_established(),
-            "SYN_SENT" | "SYN_RECV" => theme::tcp_opening(),
-            "TIME_WAIT" | "FIN_WAIT1" | "FIN_WAIT2" => theme::tcp_closing(),
-            "CLOSE_WAIT" | "LAST_ACK" | "CLOSING" => theme::tcp_waiting(),
-            "CLOSED" => theme::tcp_closed(),
+            "ESTAB" => tcp_established(),
+            "SYN_SENT" | "SYN_RECV" => tcp_opening(),
+            "TIME_WAIT" | "FIN_WAIT1" | "FIN_WAIT2" => tcp_closing(),
+            "CLOSE_WAIT" | "LAST_ACK" | "CLOSING" => tcp_waiting(),
+            "CLOSED" => tcp_closed(),
             _ => Color::Reset,
         };
         Line::from(vec![Span::styled(format!("{:>10} ", name), fg(color)), Span::styled(bar, fg(color)), Span::raw(format!(" {:>4}", count))])

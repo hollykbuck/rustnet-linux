@@ -2,13 +2,11 @@ use anyhow::Result;
 use std::time::{Duration, Instant};
 use log::error;
 use crate::app::App;
-use crate::ui::{self, UIState, GroupedRow, ClickAction, ClickableRegions, DetailsViewMode};
-use crate::ui::utils::copy_to_clipboard;
-use crate::app::state::sort_connections;
+use crate::ui::*;
 
 /// Run the UI loop
 pub fn run_ui_loop<B: ratatui::prelude::Backend>(
-    terminal: &mut ui::Terminal<B>,
+    terminal: &mut crate::ui::Terminal<B>,
     app: &App,
 ) -> Result<()>
 where
@@ -39,13 +37,13 @@ where
             } else {
                 app.get_filtered_connections(&ui_state.filter_query)
             };
-            sort_connections(
+            crate::app::state::sort_connections(
                 &mut connections,
                 ui_state.sort_column,
                 ui_state.sort_ascending,
             );
             grouped_rows = if ui_state.grouping_enabled {
-                ui::compute_grouped_rows(&connections, &ui_state.expanded_groups)
+                compute_grouped_rows(&connections, &ui_state.expanded_groups)
             } else {
                 Vec::new()
             };
@@ -57,7 +55,7 @@ where
             needs_regroup = false;
         } else if needs_regroup {
             grouped_rows = if ui_state.grouping_enabled {
-                ui::compute_grouped_rows(&connections, &ui_state.expanded_groups)
+                compute_grouped_rows(&connections, &ui_state.expanded_groups)
             } else {
                 Vec::new()
             };
@@ -70,7 +68,7 @@ where
             let selected_idx = ui_state
                 .get_selected_grouped_index(&grouped_rows)
                 .unwrap_or(0);
-            ui_state.grouped_scroll_offset = ui::compute_scroll_offset(
+            ui_state.grouped_scroll_offset = compute_scroll_offset(
                 selected_idx,
                 ui_state.grouped_scroll_offset,
                 ui_state.visible_rows,
@@ -80,7 +78,7 @@ where
             let mut listeners_sorted = listeners.clone();
             listeners_sorted.sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
             let selected_idx = ui_state.get_selected_service_index(&listeners_sorted).unwrap_or(0);
-            ui_state.services_scroll_offset = ui::compute_scroll_offset(
+            ui_state.services_scroll_offset = compute_scroll_offset(
                 selected_idx,
                 ui_state.services_scroll_offset,
                 ui_state.visible_rows,
@@ -90,7 +88,7 @@ where
             let mut devices_sorted = devices.clone();
             devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
             let selected_idx = ui_state.get_selected_device_index(&devices_sorted).unwrap_or(0);
-            ui_state.devices_scroll_offset = ui::compute_scroll_offset(
+            ui_state.devices_scroll_offset = compute_scroll_offset(
                 selected_idx,
                 ui_state.devices_scroll_offset,
                 ui_state.visible_rows,
@@ -99,7 +97,7 @@ where
         } else {
             ui_state.ensure_valid_selection(&connections);
             let selected_idx = ui_state.get_selected_index(&connections).unwrap_or(0);
-            ui_state.scroll_offset = ui::compute_scroll_offset(
+            ui_state.scroll_offset = compute_scroll_offset(
                 selected_idx,
                 ui_state.scroll_offset,
                 ui_state.visible_rows,
@@ -114,7 +112,7 @@ where
             } else {
                 None
             };
-            if let Err(err) = ui::draw(
+            if let Err(err) = draw(
                 f,
                 app,
                 &ui_state,

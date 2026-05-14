@@ -1,14 +1,14 @@
 use ratatui::prelude::*;
 use ratatui::widgets::{Block, Borders, BorderType, Paragraph};
-use crate::ui::theme::theme;
+use crate::ui::*;
 
 /// Helper to create a standard styled panel block with a title.
 pub fn panel_block<'a>(title: impl Into<Line<'a>>) -> Block<'a> {
     Block::default()
         .borders(Borders::ALL)
         .border_type(BorderType::Rounded)
-        .border_style(theme::fg(theme::muted()))
-        .title_style(theme::bold_fg(theme::heading()))
+        .border_style(fg(muted()))
+        .title_style(bold_fg(heading()))
         .title(title)
 }
 

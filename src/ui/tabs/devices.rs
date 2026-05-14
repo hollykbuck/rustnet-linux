@@ -2,10 +2,7 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Cell, Row, Table, Block, Borders};
 use crate::app::App;
 use crate::network::types::Device;
-use crate::ui::{UIState, ClickableRegions, ClickAction};
-use crate::ui::theme::theme;
-use crate::ui::components::panel_block;
-use crate::ui::utils::{format_bytes, format_system_time};
+use crate::ui::*;
 
 pub fn draw_devices(
     f: &mut Frame,
@@ -37,7 +34,7 @@ fn draw_devices_summary(f: &mut Frame, _app: &App, devices: &[Device], area: Rec
         Span::styled(" Devices ", fg(heading())),
         Span::styled(
             format!(" {}/{} online ", online_count, devices.len()),
-            theme::primary(),
+            fg(primary()),
         ),
         Span::raw(" ▏ "),
         Span::styled(" 🔍 Discovery Active ", fg(ok())),
@@ -138,22 +135,16 @@ fn draw_devices_table(
         " DISCOVERED DEVICES ({}) ",
         devices.len()
     )))
-    .row_highlight_style(theme::row_highlight())
+    .row_highlight_style(row_highlight())
     .highlight_symbol("> ");
 
     f.render_stateful_widget(table, area, &mut state);
 
-    click_regions.scroll_area = Some(area);
     let inner = area.inner(Margin { horizontal: 1, vertical: 1 });
     let header_height = 1_u16;
-    let visible_start_y = inner.y + header_height;
-    let max_visible_rows = inner.height.saturating_sub(header_height) as usize;
-
-    for i in 0..max_visible_rows {
+    for i in 0..(inner.height.saturating_sub(header_height) as usize) {
         let device_idx = scroll_offset + i;
         if device_idx >= devices_sorted.len() { break; }
-        let row_y = visible_start_y + i as u16;
-        let row_rect = Rect::new(inner.x, row_y, inner.width, 1);
-        click_regions.register(row_rect, ClickAction::SelectDevice(device_idx));
+        click_regions.register(Rect::new(inner.x, inner.y + header_height + i as u16, inner.width, 1), ClickAction::SelectDevice(device_idx));
     }
 }

@@ -1,12 +1,11 @@
 use ratatui::prelude::*;
 use ratatui::widgets::{Paragraph, Wrap};
-use crate::ui::theme::theme;
-use crate::ui::components::panel_block;
+use crate::ui::*;
 
 pub fn draw_help(f: &mut Frame, area: Rect) -> anyhow::Result<()> {
     let help_text: Vec<Line> = vec![
         Line::from(vec![
-            Span::styled("RustNet Monitor ", theme::bold_fg(theme::ok())),
+            Span::styled("RustNet Monitor ", bold_fg(ok())),
             Span::raw("- Network Connection Monitor"),
         ]),
         Line::from(""),
@@ -33,7 +32,7 @@ pub fn draw_help(f: &mut Frame, area: Rect) -> anyhow::Result<()> {
         Line::from(vec![Span::styled("i ", fg(key())), Span::raw("Toggle interface statistics view")]),
         Line::from(vec![Span::styled("/ ", fg(key())), Span::raw("Enter filter mode on Overview")]),
         Line::from(""),
-        Line::from(vec![Span::styled("Tabs:", theme::bold_fg(theme::accent()))]),
+        Line::from(vec![Span::styled("Tabs:", bold_fg(accent()))]),
         Line::from(vec![Span::styled("  Overview ", fg(ok())), Span::raw("Connection list with mini traffic graph")]),
         Line::from(vec![Span::styled("  Details ", fg(ok())), Span::raw("Full details for selected connection")]),
         Line::from(vec![Span::styled("  Interfaces ", fg(ok())), Span::raw("Network interface statistics")]),

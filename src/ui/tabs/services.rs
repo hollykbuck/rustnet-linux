@@ -2,9 +2,7 @@ use ratatui::prelude::*;
 use ratatui::widgets::{Cell, Row, Table, Paragraph};
 use crate::app::App;
 use crate::network::types::{Listener, Protocol};
-use crate::ui::{UIState, ClickableRegions, ClickAction};
-use crate::ui::theme::theme;
-use crate::ui::components::panel_block;
+use crate::ui::*;
 
 pub fn draw_services(
     f: &mut Frame,
@@ -54,7 +52,7 @@ fn draw_services_summary(f: &mut Frame, listeners: &[Listener], area: Rect) {
     addr_vec.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
 
     let mut bind_lines = vec![Line::from(vec![
-        Span::styled(format!(" {} ", tcp_listeners), theme::primary()),
+        Span::styled(format!(" {} ", tcp_listeners), fg(primary())),
         Span::raw("listeners"),
     ])];
 
@@ -62,7 +60,7 @@ fn draw_services_summary(f: &mut Frame, listeners: &[Listener], area: Rect) {
         let bar_len = (bind_inner.width as usize).saturating_sub(15).min(*count * 2);
         bind_lines.push(Line::from(vec![
             Span::styled(format!("{:<10} ", addr), fg(muted())),
-            Span::styled("█".repeat(bar_len), theme::primary()),
+            Span::styled("█".repeat(bar_len), fg(primary())),
             Span::raw(format!(" {}", count)),
         ]));
     }
@@ -110,7 +108,7 @@ fn draw_services_summary(f: &mut Frame, listeners: &[Listener], area: Rect) {
 
     let services_lines = vec![
         Line::from(vec![
-            Span::styled(format!(" {} ", listeners.len()), theme::primary()),
+            Span::styled(format!(" {} ", listeners.len()), fg(primary())),
             Span::raw("total services"),
         ]),
         Line::from(vec![
@@ -119,7 +117,7 @@ fn draw_services_summary(f: &mut Frame, listeners: &[Listener], area: Rect) {
             Span::raw(format!("  ○ {} silent", listeners.len().saturating_sub(active_services))),
         ]),
         Line::from(vec![
-            Span::styled(" ⇄ ", theme::primary()),
+            Span::styled(" ⇄ ", fg(primary())),
             Span::raw(format!("{} total connections", total_conn)),
         ]),
     ];
@@ -162,7 +160,7 @@ fn draw_listeners_table(
             };
 
             let proto_color = match l.protocol {
-                Protocol::Tcp => theme::tcp_established(),
+                Protocol::Tcp => tcp_established(),
                 Protocol::Udp => Color::Cyan,
                 _ => Color::Reset,
             };
@@ -213,22 +211,16 @@ fn draw_listeners_table(
         " TCP/UDP SERVICES ({}) ",
         listeners.len()
     )))
-    .row_highlight_style(theme::row_highlight())
+    .row_highlight_style(row_highlight())
     .highlight_symbol("> ");
 
     f.render_stateful_widget(table, area, &mut state);
 
-    click_regions.scroll_area = Some(area);
     let inner = area.inner(Margin { horizontal: 1, vertical: 1 });
     let header_height = 1_u16;
-    let visible_start_y = inner.y + header_height;
-    let max_visible_rows = inner.height.saturating_sub(header_height) as usize;
-
-    for i in 0..max_visible_rows {
+    for i in 0..(inner.height.saturating_sub(header_height) as usize) {
         let service_idx = scroll_offset + i;
         if service_idx >= listeners_sorted.len() { break; }
-        let row_y = visible_start_y + i as u16;
-        let row_rect = Rect::new(inner.x, row_y, inner.width, 1);
-        click_regions.register(row_rect, ClickAction::SelectService(service_idx));
+        click_regions.register(Rect::new(inner.x, inner.y + header_height + i as u16, inner.width, 1), ClickAction::SelectService(service_idx));
     }
 }

@@ -1,9 +1,7 @@
 use ratatui::prelude::*;
 use ratatui::widgets::{Cell, Row, Table};
 use crate::app::App;
-use crate::ui::theme::theme;
-use crate::ui::components::panel_block;
-use crate::ui::utils::format_bytes;
+use crate::ui::*;
 
 pub fn draw_interface_stats(f: &mut Frame, app: &App, area: Rect) -> anyhow::Result<()> {
     let mut stats = app.get_interface_stats();

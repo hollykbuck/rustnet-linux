@@ -1,14 +1,10 @@
 use ratatui::prelude::*;
 use ratatui::widgets::{Paragraph, Wrap};
 use crate::network::dns::DnsResolver;
-use crate::network::types::{Connection, Device, Listener, Protocol, ProtocolState};
-use crate::ui::{UIState, ClickableRegions, ClickAction};
-use crate::ui::theme::{self, style_if_colored};
-use crate::ui::components::panel_block;
-use crate::ui::utils::{format_bytes, format_rate, format_system_time, NONE_PLACEHOLDER};
+use crate::network::types::{Connection, Device, Listener};
+use crate::ui::*;
 
 const DETAIL_LABEL_WIDTH: usize = 22;
-const DETAILS_SPLIT_MIN_WIDTH: u16 = 100;
 
 pub fn draw_connection_details(
     f: &mut Frame,
@@ -39,12 +35,12 @@ pub fn draw_connection_details(
         push_detail_field_styled(&mut details_text, &mut detail_fields, "Status", "Active".to_string(), label_style, fg(ok()));
     }
 
-    push_detail_field_styled(&mut details_text, &mut detail_fields, "Local Address", conn.local_addr.to_string(), label_style, fg(field_local_addr()));
-    push_detail_field_styled(&mut details_text, &mut detail_fields, "Remote Address", conn.remote_addr.to_string(), label_style, fg(field_remote_addr()));
+    push_detail_field_styled(&mut details_text, &mut detail_fields, "Local Address", conn.local_addr.to_string(), label_style, field_local_addr());
+    push_detail_field_styled(&mut details_text, &mut detail_fields, "Remote Address", conn.remote_addr.to_string(), label_style, field_remote_addr());
     
-    push_detail_field_styled(&mut details_text, &mut detail_fields, "Process", conn.process_name.clone().unwrap_or_else(|| NONE_PLACEHOLDER.to_string()), label_style, fg(field_process()));
+    push_detail_field_styled(&mut details_text, &mut detail_fields, "Process", conn.process_name.clone().unwrap_or_else(|| NONE_PLACEHOLDER.to_string()), label_style, field_process());
     push_detail_field(&mut details_text, &mut detail_fields, "PID", conn.pid.map(|p| p.to_string()).unwrap_or_else(|| NONE_PLACEHOLDER.to_string()), label_style);
-    push_detail_field_styled(&mut details_text, &mut detail_fields, "Service", conn.service_name.clone().unwrap_or_else(|| NONE_PLACEHOLDER.to_string()), label_style, fg(field_service()));
+    push_detail_field_styled(&mut details_text, &mut detail_fields, "Service", conn.service_name.clone().unwrap_or_else(|| NONE_PLACEHOLDER.to_string()), label_style, field_service());
 
     if let Some(resolver) = dns_resolver {
         if let Some(h) = resolver.get_hostname(&conn.remote_addr.ip()) {
@@ -89,13 +85,13 @@ fn register_detail_clicks(click_regions: &mut ClickableRegions, area: Rect, fiel
     }
 }
 
-pub fn draw_device_details(f: &mut Frame, _ui_state: &UIState, devices: &[Device], area: Rect, click_regions: &mut ClickableRegions) -> anyhow::Result<()> {
+pub fn draw_device_details(f: &mut Frame, _ui_state: &UIState, devices: &[Device], area: Rect, _click_regions: &mut ClickableRegions) -> anyhow::Result<()> {
     if devices.is_empty() { return Ok(()); }
     f.render_widget(Paragraph::new("Device details placeholder"), area);
     Ok(())
 }
 
-pub fn draw_service_details(f: &mut Frame, _ui_state: &UIState, listeners: &[Listener], area: Rect, click_regions: &mut ClickableRegions) -> anyhow::Result<()> {
+pub fn draw_service_details(f: &mut Frame, _ui_state: &UIState, listeners: &[Listener], area: Rect, _click_regions: &mut ClickableRegions) -> anyhow::Result<()> {
     if listeners.is_empty() { return Ok(()); }
     f.render_widget(Paragraph::new("Service details placeholder"), area);
     Ok(())

@@ -1,6 +1,6 @@
 use anyhow::Result;
 use ratatui::prelude::*;
-use ratatui::widgets::{Tabs, Block, Borders, Paragraph, Wrap};
+use ratatui::widgets::{Tabs, Block, Borders, Paragraph};
 use std::collections::HashSet;
 use std::time::Instant;
 
@@ -276,7 +276,7 @@ fn draw_tabs(f: &mut Frame, ui_state: &UIState, area: Rect, click_regions: &mut 
         .block(Block::default().borders(Borders::ALL).border_style(fg(muted())))
         .select(ui_state.selected_tab)
         .style(fg(muted()))
-        .highlight_style(primary().add_modifier(Modifier::REVERSED));
+        .highlight_style(fg(primary()).add_modifier(Modifier::REVERSED));
 
     f.render_widget(tabs, area);
 
@@ -319,7 +319,7 @@ pub fn setup_terminal<B: ratatui::backend::Backend>(backend: B) -> Result<Termin
 where
     <B as ratatui::backend::Backend>::Error: Send + Sync + 'static,
 {
-    let mut terminal = ratatui::Terminal::new(backend)?;
+    let terminal = ratatui::Terminal::new(backend)?;
     crossterm::terminal::enable_raw_mode()?;
     crossterm::execute!(std::io::stdout(), crossterm::terminal::EnterAlternateScreen, crossterm::event::EnableMouseCapture)?;
     Ok(terminal)

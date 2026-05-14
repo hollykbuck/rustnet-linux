@@ -72,9 +72,9 @@ pub fn status_bar_success() -> Style {
     style_if_colored(Style::default().bg(ok()).fg(Color::Black).add_modifier(Modifier::BOLD))
 }
 
-pub const fn field_local_addr() -> Color { Color::Rgb(152, 195, 121) }
-pub const fn field_remote_addr() -> Color { Color::Rgb(97, 175, 239) }
-pub const fn field_process() -> Color { Color::Rgb(224, 108, 117) }
-pub const fn field_service() -> Color { Color::Rgb(209, 154, 102) }
-pub const fn field_location() -> Color { Color::Rgb(198, 120, 221) }
-pub const fn field_application() -> Color { Color::White }
+pub fn field_local_addr() -> Style { fg(Color::Rgb(152, 195, 121)) }
+pub fn field_remote_addr() -> Style { fg(Color::Rgb(97, 175, 239)) }
+pub fn field_process() -> Style { fg(Color::Rgb(224, 108, 117)) }
+pub fn field_service() -> Style { fg(Color::Rgb(209, 154, 102)) }
+pub fn field_location() -> Style { fg(Color::Rgb(198, 120, 221)) }
+pub fn field_application() -> Style { fg(Color::White) }
