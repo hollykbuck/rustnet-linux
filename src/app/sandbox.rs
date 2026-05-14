@@ -1,8 +1,8 @@
-use log::warn;
-use std::path::PathBuf;
 use crate::app::{App, SandboxInfo};
 use crate::network::geoip::GeoIpResolver;
 use crate::network::platform::sandbox::{SandboxConfig, SandboxMode, SandboxStatus, apply_sandbox};
+use log::warn;
+use std::path::PathBuf;
 
 /// Initialize and apply the security sandbox for the current platform.
 ///

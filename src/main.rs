@@ -12,8 +12,8 @@ mod filter;
 mod network;
 mod ui;
 
-use crate::app::{App, Config};
 use crate::app::sandbox::initialize_sandbox;
+use crate::app::{App, Config};
 use crate::ui::run_ui_loop;
 
 fn main() -> Result<()> {
@@ -78,9 +78,10 @@ fn main() -> Result<()> {
 
     // Apply platform-specific sandbox
     if let Err(e) = initialize_sandbox(&app, &matches)
-        && matches.get_flag("sandbox-strict") {
-            return Err(e);
-        }
+        && matches.get_flag("sandbox-strict")
+    {
+        return Err(e);
+    }
 
     // Run the UI loop
     let res = run_ui_loop(&mut terminal, &app);
@@ -114,11 +115,19 @@ fn setup_logging(level: LevelFilter) -> Result<()> {
 fn check_privileges_early() -> Result<()> {
     match network::privileges::check_packet_capture_privileges() {
         Ok(status) if !status.has_privileges => {
-            eprintln!("\n╔═══════════════════════════════════════════════════════════════════════════╗");
-            eprintln!("║                   INSUFFICIENT PRIVILEGES                                 ║");
-            eprintln!("╚═══════════════════════════════════════════════════════════════════════════╝\n");
+            eprintln!(
+                "\n╔═══════════════════════════════════════════════════════════════════════════╗"
+            );
+            eprintln!(
+                "║                   INSUFFICIENT PRIVILEGES                                 ║"
+            );
+            eprintln!(
+                "╚═══════════════════════════════════════════════════════════════════════════╝\n"
+            );
             eprintln!("{}", status.error_message());
-            return Err(anyhow::anyhow!("Insufficient privileges for packet capture"));
+            return Err(anyhow::anyhow!(
+                "Insufficient privileges for packet capture"
+            ));
         }
         Err(e) => {
             eprintln!("Warning: Failed to check privileges: {}\n", e);
@@ -135,14 +144,26 @@ fn check_windows_dependencies() -> Result<()> {
     let packet_available = check_dll_available("Packet.dll");
 
     if !wpcap_available || !packet_available {
-        eprintln!("\n╔═══════════════════════════════════════════════════════════════════════════╗");
+        eprintln!(
+            "\n╔═══════════════════════════════════════════════════════════════════════════╗"
+        );
         eprintln!("║                          MISSING DEPENDENCY                               ║");
-        eprintln!("╚═══════════════════════════════════════════════════════════════════════════╝\n");
+        eprintln!(
+            "╚═══════════════════════════════════════════════════════════════════════════╝\n"
+        );
         eprintln!("RustNet requires Npcap for packet capture on Windows.\n");
-        if !wpcap_available { eprintln!("  ✗ wpcap.dll not found"); }
-        if !packet_available { eprintln!("  ✗ Packet.dll not found"); }
-        eprintln!("\nTo fix this:\n  1. Download Npcap from: https://npcap.com/dist/\n  2. Run the installer\n  3. IMPORTANT: Check \"Install Npcap in WinPcap API-compatible Mode\"\n");
-        return Err(anyhow!("Npcap is not installed or not in WinPcap compatible mode"));
+        if !wpcap_available {
+            eprintln!("  ✗ wpcap.dll not found");
+        }
+        if !packet_available {
+            eprintln!("  ✗ Packet.dll not found");
+        }
+        eprintln!(
+            "\nTo fix this:\n  1. Download Npcap from: https://npcap.com/dist/\n  2. Run the installer\n  3. IMPORTANT: Check \"Install Npcap in WinPcap API-compatible Mode\"\n"
+        );
+        return Err(anyhow!(
+            "Npcap is not installed or not in WinPcap compatible mode"
+        ));
     }
     Ok(())
 }

@@ -1,8 +1,8 @@
-use anyhow::Result;
-use std::time::{Duration, Instant};
-use log::error;
 use crate::app::App;
 use crate::ui::*;
+use anyhow::Result;
+use log::error;
+use std::time::{Duration, Instant};
 
 /// Run the UI loop
 pub fn run_ui_loop<B: ratatui::prelude::Backend>(
@@ -77,7 +77,9 @@ where
         } else if ui_state.selected_tab == 2 {
             let mut listeners_sorted = listeners.clone();
             listeners_sorted.sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
-            let selected_idx = ui_state.get_selected_service_index(&listeners_sorted).unwrap_or(0);
+            let selected_idx = ui_state
+                .get_selected_service_index(&listeners_sorted)
+                .unwrap_or(0);
             ui_state.services_scroll_offset = compute_scroll_offset(
                 selected_idx,
                 ui_state.services_scroll_offset,
@@ -87,7 +89,9 @@ where
         } else if ui_state.selected_tab == 1 {
             let mut devices_sorted = devices.clone();
             devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
-            let selected_idx = ui_state.get_selected_device_index(&devices_sorted).unwrap_or(0);
+            let selected_idx = ui_state
+                .get_selected_device_index(&devices_sorted)
+                .unwrap_or(0);
             ui_state.devices_scroll_offset = compute_scroll_offset(
                 selected_idx,
                 ui_state.devices_scroll_offset,
@@ -149,12 +153,33 @@ where
             let event = crossterm::event::read()?;
             match event {
                 crossterm::event::Event::Mouse(mouse) => {
-                    handle_mouse_event(mouse, &mut ui_state, &click_regions, app, &connections, &grouped_rows, &listeners, &devices, &mut needs_regroup);
+                    handle_mouse_event(
+                        mouse,
+                        &mut ui_state,
+                        &click_regions,
+                        app,
+                        &connections,
+                        &grouped_rows,
+                        &listeners,
+                        &devices,
+                        &mut needs_regroup,
+                    );
                 }
                 crossterm::event::Event::Key(key)
-                    if handle_key_event(key, &mut ui_state, app, &connections, &grouped_rows, &listeners, &devices, &mut needs_data_refresh, &mut needs_regroup)? => {
-                        break;
-                    }
+                    if handle_key_event(
+                        key,
+                        &mut ui_state,
+                        app,
+                        &connections,
+                        &grouped_rows,
+                        &listeners,
+                        &devices,
+                        &mut needs_data_refresh,
+                        &mut needs_regroup,
+                    )? =>
+                {
+                    break;
+                }
                 _ => {}
             }
         }
@@ -225,7 +250,8 @@ fn handle_mouse_event(
                     ClickAction::SelectService(service_idx) => {
                         ui_state.details_view_mode = DetailsViewMode::Service;
                         let mut listeners_sorted = listeners.to_vec();
-                        listeners_sorted.sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
+                        listeners_sorted
+                            .sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
                         ui_state.set_selected_service_by_index(&listeners_sorted, service_idx);
                         if is_double_click {
                             ui_state.selected_tab = 3;
@@ -265,7 +291,8 @@ fn handle_mouse_event(
                     ui_state.move_device_selection_up(&devices_sorted);
                 } else if ui_state.selected_tab == 2 {
                     let mut listeners_sorted = listeners.to_vec();
-                    listeners_sorted.sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
+                    listeners_sorted
+                        .sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
                     ui_state.move_service_selection_up(&listeners_sorted);
                 }
             }
@@ -289,7 +316,8 @@ fn handle_mouse_event(
                     ui_state.move_device_selection_down(&devices_sorted);
                 } else if ui_state.selected_tab == 2 {
                     let mut listeners_sorted = listeners.to_vec();
-                    listeners_sorted.sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
+                    listeners_sorted
+                        .sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
                     ui_state.move_service_selection_down(&listeners_sorted);
                 }
             }
@@ -330,7 +358,9 @@ fn handle_key_event(
                 *needs_data_refresh = true;
             }
             KeyCode::Delete if ui_state.filter_cursor_position < ui_state.filter_query.len() => {
-                ui_state.filter_query.remove(ui_state.filter_cursor_position);
+                ui_state
+                    .filter_query
+                    .remove(ui_state.filter_cursor_position);
                 *needs_data_refresh = true;
             }
             KeyCode::Left => ui_state.filter_cursor_left(),
@@ -367,7 +397,11 @@ fn handle_key_event(
                 update_details_mode(ui_state);
             }
             (KeyCode::BackTab, _) | (KeyCode::Tab, KeyModifiers::SHIFT) => {
-                ui_state.selected_tab = if ui_state.selected_tab == 0 { 6 } else { ui_state.selected_tab - 1 };
+                ui_state.selected_tab = if ui_state.selected_tab == 0 {
+                    6
+                } else {
+                    ui_state.selected_tab - 1
+                };
                 update_details_mode(ui_state);
             }
             (KeyCode::Char('h'), _) => {
@@ -384,7 +418,8 @@ fn handle_key_event(
                     ui_state.move_device_selection_up(&devices_sorted);
                 } else if ui_state.selected_tab == 2 {
                     let mut listeners_sorted = listeners.to_vec();
-                    listeners_sorted.sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
+                    listeners_sorted
+                        .sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
                     ui_state.move_service_selection_up(&listeners_sorted);
                 } else if ui_state.grouping_enabled {
                     ui_state.move_selection_up_grouped(grouped_rows);
@@ -399,7 +434,8 @@ fn handle_key_event(
                     ui_state.move_device_selection_down(&devices_sorted);
                 } else if ui_state.selected_tab == 2 {
                     let mut listeners_sorted = listeners.to_vec();
-                    listeners_sorted.sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
+                    listeners_sorted
+                        .sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
                     ui_state.move_service_selection_down(&listeners_sorted);
                 } else if ui_state.grouping_enabled {
                     ui_state.move_selection_down_grouped(grouped_rows);
@@ -412,11 +448,16 @@ fn handle_key_event(
                 if ui_state.selected_tab == 1 {
                     let mut devices_sorted = devices.to_vec();
                     devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
-                    for _ in 0..page_size { ui_state.move_device_selection_up(&devices_sorted); }
+                    for _ in 0..page_size {
+                        ui_state.move_device_selection_up(&devices_sorted);
+                    }
                 } else if ui_state.selected_tab == 2 {
                     let mut listeners_sorted = listeners.to_vec();
-                    listeners_sorted.sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
-                    for _ in 0..page_size { ui_state.move_service_selection_up(&listeners_sorted); }
+                    listeners_sorted
+                        .sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
+                    for _ in 0..page_size {
+                        ui_state.move_service_selection_up(&listeners_sorted);
+                    }
                 } else if ui_state.grouping_enabled {
                     ui_state.move_selection_page_up_grouped(grouped_rows, page_size);
                 } else {
@@ -428,11 +469,16 @@ fn handle_key_event(
                 if ui_state.selected_tab == 1 {
                     let mut devices_sorted = devices.to_vec();
                     devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
-                    for _ in 0..page_size { ui_state.move_device_selection_down(&devices_sorted); }
+                    for _ in 0..page_size {
+                        ui_state.move_device_selection_down(&devices_sorted);
+                    }
                 } else if ui_state.selected_tab == 2 {
                     let mut listeners_sorted = listeners.to_vec();
-                    listeners_sorted.sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
-                    for _ in 0..page_size { ui_state.move_service_selection_down(&listeners_sorted); }
+                    listeners_sorted
+                        .sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
+                    for _ in 0..page_size {
+                        ui_state.move_service_selection_down(&listeners_sorted);
+                    }
                 } else if ui_state.grouping_enabled {
                     ui_state.move_selection_page_down_grouped(grouped_rows, page_size);
                 } else {
@@ -446,7 +492,8 @@ fn handle_key_event(
                     ui_state.set_selected_device_by_index(&devices_sorted, 0);
                 } else if ui_state.selected_tab == 2 {
                     let mut listeners_sorted = listeners.to_vec();
-                    listeners_sorted.sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
+                    listeners_sorted
+                        .sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
                     ui_state.set_selected_service_by_index(&listeners_sorted, 0);
                 } else {
                     ui_state.move_selection_to_first(connections);
@@ -456,17 +503,27 @@ fn handle_key_event(
                 if ui_state.selected_tab == 1 {
                     let mut devices_sorted = devices.to_vec();
                     devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
-                    ui_state.set_selected_device_by_index(&devices_sorted, devices_sorted.len().saturating_sub(1));
+                    ui_state.set_selected_device_by_index(
+                        &devices_sorted,
+                        devices_sorted.len().saturating_sub(1),
+                    );
                 } else if ui_state.selected_tab == 2 {
                     let mut listeners_sorted = listeners.to_vec();
-                    listeners_sorted.sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
-                    ui_state.set_selected_service_by_index(&listeners_sorted, listeners_sorted.len().saturating_sub(1));
+                    listeners_sorted
+                        .sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
+                    ui_state.set_selected_service_by_index(
+                        &listeners_sorted,
+                        listeners_sorted.len().saturating_sub(1),
+                    );
                 } else {
                     ui_state.move_selection_to_last(connections);
                 }
             }
             (KeyCode::Enter, _) => {
-                if ui_state.selected_tab == 0 && !connections.is_empty() && !(ui_state.grouping_enabled && ui_state.is_group_selected()) {
+                if ui_state.selected_tab == 0
+                    && !connections.is_empty()
+                    && !(ui_state.grouping_enabled && ui_state.is_group_selected())
+                {
                     ui_state.details_view_mode = DetailsViewMode::Connection;
                     ui_state.selected_tab = 3;
                 } else if ui_state.selected_tab == 1 && !devices.is_empty() {
@@ -477,7 +534,11 @@ fn handle_key_event(
                     ui_state.selected_tab = 3;
                 }
             }
-            (KeyCode::Char(' '), _) if ui_state.selected_tab == 0 && ui_state.grouping_enabled && ui_state.is_group_selected() => {
+            (KeyCode::Char(' '), _)
+                if ui_state.selected_tab == 0
+                    && ui_state.grouping_enabled
+                    && ui_state.is_group_selected() =>
+            {
                 ui_state.toggle_group_expansion();
                 *needs_regroup = true;
             }
@@ -485,7 +546,9 @@ fn handle_key_event(
                 ui_state.collapse_selected_group();
                 *needs_regroup = true;
             }
-            (KeyCode::Right, _) | (KeyCode::Char('l'), _) if ui_state.selected_tab == 0 && ui_state.grouping_enabled => {
+            (KeyCode::Right, _) | (KeyCode::Char('l'), _)
+                if ui_state.selected_tab == 0 && ui_state.grouping_enabled =>
+            {
                 ui_state.expand_selected_group();
                 *needs_regroup = true;
             }
@@ -496,11 +559,15 @@ fn handle_key_event(
             (KeyCode::Char('r'), _) => {
                 let was_historic = ui_state.show_historic;
                 ui_state.reset_view();
-                if was_historic { app.set_show_historic(false); }
+                if was_historic {
+                    app.set_show_historic(false);
+                }
                 *needs_data_refresh = true;
             }
             (KeyCode::Char('p'), _) => ui_state.show_port_numbers = !ui_state.show_port_numbers,
-            (KeyCode::Char('d'), _) if app.is_dns_resolution_enabled() => ui_state.show_hostnames = !ui_state.show_hostnames,
+            (KeyCode::Char('d'), _) if app.is_dns_resolution_enabled() => {
+                ui_state.show_hostnames = !ui_state.show_hostnames
+            }
             (KeyCode::Char('t'), _) => {
                 ui_state.show_historic = !ui_state.show_historic;
                 app.toggle_show_historic();

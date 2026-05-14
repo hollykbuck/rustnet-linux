@@ -2,28 +2,30 @@ use anyhow::Result;
 use dashmap::DashMap;
 use log::{info, warn};
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering, AtomicU64};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex, RwLock};
 use std::thread;
 use std::time::Duration;
 
 pub mod config;
-pub mod types;
 pub mod logging;
+pub mod sandbox;
 pub mod state;
 pub mod threads;
-pub mod sandbox;
+pub mod types;
 
-pub use config::Config;
-pub use types::{AppStats, ProcessDetectionStatus, SandboxInfo};
+use crate::app::logging::log_pcap_connection;
+use crate::app::state::QUIC_CONNECTION_MAPPING;
 use crate::network::dns::DnsResolver;
 use crate::network::geoip::{GeoIpConfig, GeoIpResolver};
 use crate::network::interface_stats::{InterfaceRates, InterfaceStats};
 use crate::network::oui::OuiLookup;
 use crate::network::services::ServiceLookup;
-use crate::network::types::{Connection, Device, Listener, TrafficHistory, RttTracker, ApplicationProtocol, DnsQueryType};
-use crate::app::logging::log_pcap_connection;
-use crate::app::state::QUIC_CONNECTION_MAPPING;
+use crate::network::types::{
+    ApplicationProtocol, Connection, Device, DnsQueryType, Listener, RttTracker, TrafficHistory,
+};
+pub use config::Config;
+pub use types::{AppStats, ProcessDetectionStatus, SandboxInfo};
 
 /// Main application state
 pub struct App {

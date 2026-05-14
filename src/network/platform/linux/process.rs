@@ -265,10 +265,13 @@ impl ProcessLookup for LinuxProcessLookup {
                 if protocol == Protocol::Tcp && parts[3] != "0A" {
                     continue;
                 }
-                
+
                 // For UDP, we only care about "listeners" which have no remote address.
                 // rem_address is at index 2.
-                if protocol == Protocol::Udp && parts[2] != "00000000:0000" && parts[2] != "00000000000000000000000000000000:0000" {
+                if protocol == Protocol::Udp
+                    && parts[2] != "00000000:0000"
+                    && parts[2] != "00000000000000000000000000000000:0000"
+                {
                     continue;
                 }
 
@@ -283,10 +286,11 @@ impl ProcessLookup for LinuxProcessLookup {
                     };
 
                     if let Ok(inode) = parts[9].parse::<u64>()
-                        && let Some((pid, name)) = inode_to_process.get(&inode) {
-                            listener.pid = Some(*pid);
-                            listener.process_name = Some(name.clone());
-                        }
+                        && let Some((pid, name)) = inode_to_process.get(&inode)
+                    {
+                        listener.pid = Some(*pid);
+                        listener.process_name = Some(name.clone());
+                    }
 
                     listeners.push(listener);
                 }

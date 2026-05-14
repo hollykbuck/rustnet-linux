@@ -1,8 +1,8 @@
-use ratatui::prelude::*;
-use ratatui::widgets::{Cell, Row, Table, Paragraph, Wrap};
 use crate::app::{App, AppStats};
+use crate::network::types::{ApplicationProtocol, Connection, Protocol, ProtocolState, TcpState};
 use crate::ui::*;
-use crate::network::types::{Connection, Protocol, ProtocolState, TcpState, ApplicationProtocol};
+use ratatui::prelude::*;
+use ratatui::widgets::{Cell, Paragraph, Row, Table, Wrap};
 
 pub fn draw_overview(
     f: &mut Frame,
@@ -23,9 +23,25 @@ pub fn draw_overview(
     let dns_resolver = app.get_dns_resolver();
 
     if let Some(grouped) = grouped_rows {
-        draw_grouped_connections_list(f, ui_state, grouped, chunks[0], dns_resolver.as_deref(), has_country_db, click_regions);
+        draw_grouped_connections_list(
+            f,
+            ui_state,
+            grouped,
+            chunks[0],
+            dns_resolver.as_deref(),
+            has_country_db,
+            click_regions,
+        );
     } else {
-        draw_connections_list(f, ui_state, connections, chunks[0], dns_resolver.as_deref(), has_country_db, click_regions);
+        draw_connections_list(
+            f,
+            ui_state,
+            connections,
+            chunks[0],
+            dns_resolver.as_deref(),
+            has_country_db,
+            click_regions,
+        );
     }
 
     draw_stats_panel(f, connections, stats, app, chunks[1])?;
@@ -66,12 +82,8 @@ fn state_color(conn: &Connection) -> Color {
                 match state {
                     TcpState::Established => tcp_established(),
                     TcpState::SynSent | TcpState::SynReceived => tcp_opening(),
-                    TcpState::FinWait1 | TcpState::FinWait2 | TcpState::TimeWait => {
-                        tcp_closing()
-                    }
-                    TcpState::CloseWait | TcpState::LastAck | TcpState::Closing => {
-                        tcp_waiting()
-                    }
+                    TcpState::FinWait1 | TcpState::FinWait2 | TcpState::TimeWait => tcp_closing(),
+                    TcpState::CloseWait | TcpState::LastAck | TcpState::Closing => tcp_waiting(),
                     TcpState::Closed => tcp_closed(),
                     TcpState::Unknown => Color::Reset,
                 }
@@ -112,7 +124,9 @@ fn draw_connections_list(
         Constraint::Length(22),
         Constraint::Length(22),
     ];
-    if show_location { widths.push(Constraint::Length(5)); }
+    if show_location {
+        widths.push(Constraint::Length(5));
+    }
     widths.extend([
         Constraint::Length(12),
         Constraint::Length(12),
@@ -128,7 +142,9 @@ fn draw_connections_list(
         Cell::from("Local Address"),
         Cell::from("Remote Address"),
     ];
-    if show_location { header_cells.push(Cell::from("Loc")); }
+    if show_location {
+        header_cells.push(Cell::from("Loc"));
+    }
     header_cells.extend([
         Cell::from("State"),
         Cell::from("Service"),
@@ -137,7 +153,10 @@ fn draw_connections_list(
         Cell::from("Process"),
     ]);
 
-    let header = Row::new(header_cells).style(header_style).height(1).bottom_margin(1);
+    let header = Row::new(header_cells)
+        .style(header_style)
+        .height(1)
+        .bottom_margin(1);
 
     let scroll_offset = ui_state.scroll_offset;
     let visible_rows = ui_state.visible_rows.max(1);
@@ -147,13 +166,33 @@ fn draw_connections_list(
     let rows: Vec<Row> = visible_connections
         .iter()
         .map(|conn| {
-            let local_addr = if ui_state.show_hostnames && let Some(h) = dns_resolver.and_then(|r| r.get_hostname(&conn.local_addr.ip())) {
-                if ui_state.show_port_numbers { format!("{}:{}", h, conn.local_addr.port()) } else { h }
-            } else if ui_state.show_port_numbers { conn.local_addr.to_string() } else { conn.local_addr.ip().to_string() };
+            let local_addr = if ui_state.show_hostnames
+                && let Some(h) = dns_resolver.and_then(|r| r.get_hostname(&conn.local_addr.ip()))
+            {
+                if ui_state.show_port_numbers {
+                    format!("{}:{}", h, conn.local_addr.port())
+                } else {
+                    h
+                }
+            } else if ui_state.show_port_numbers {
+                conn.local_addr.to_string()
+            } else {
+                conn.local_addr.ip().to_string()
+            };
 
-            let remote_addr = if ui_state.show_hostnames && let Some(h) = dns_resolver.and_then(|r| r.get_hostname(&conn.remote_addr.ip())) {
-                if ui_state.show_port_numbers { format!("{}:{}", h, conn.remote_addr.port()) } else { h }
-            } else if ui_state.show_port_numbers { conn.remote_addr.to_string() } else { conn.remote_addr.ip().to_string() };
+            let remote_addr = if ui_state.show_hostnames
+                && let Some(h) = dns_resolver.and_then(|r| r.get_hostname(&conn.remote_addr.ip()))
+            {
+                if ui_state.show_port_numbers {
+                    format!("{}:{}", h, conn.remote_addr.port())
+                } else {
+                    h
+                }
+            } else if ui_state.show_port_numbers {
+                conn.remote_addr.to_string()
+            } else {
+                conn.remote_addr.ip().to_string()
+            };
 
             let incoming_rate = format_rate_compact(conn.current_incoming_rate_bps);
             let outgoing_rate = format_rate_compact(conn.current_outgoing_rate_bps);
@@ -165,15 +204,31 @@ fn draw_connections_list(
                 Cell::from(remote_addr).style(style_if_colored(field_remote_addr())),
             ];
             if show_location {
-                let loc = conn.geoip_info.as_ref().and_then(|g| g.country_code.as_deref()).unwrap_or("-");
+                let loc = conn
+                    .geoip_info
+                    .as_ref()
+                    .and_then(|g| g.country_code.as_deref())
+                    .unwrap_or("-");
                 cells.push(Cell::from(loc).style(style_if_colored(field_location())));
             }
             cells.extend([
                 Cell::from(conn.state()).style(style_if_colored(fg(state_color(conn)))),
-                Cell::from(conn.service_name.as_deref().unwrap_or(NONE_PLACEHOLDER)).style(style_if_colored(field_service())),
-                Cell::from(conn.dpi_info.as_ref().map(|d| d.application.to_string()).unwrap_or_else(|| NONE_PLACEHOLDER.to_string())).style(style_if_colored(fg(conn.dpi_info.as_ref().map(|d| dpi_color(&d.application)).unwrap_or(Color::Reset)))),
+                Cell::from(conn.service_name.as_deref().unwrap_or(NONE_PLACEHOLDER))
+                    .style(style_if_colored(field_service())),
+                Cell::from(
+                    conn.dpi_info
+                        .as_ref()
+                        .map(|d| d.application.to_string())
+                        .unwrap_or_else(|| NONE_PLACEHOLDER.to_string()),
+                )
+                .style(style_if_colored(fg(conn
+                    .dpi_info
+                    .as_ref()
+                    .map(|d| dpi_color(&d.application))
+                    .unwrap_or(Color::Reset)))),
                 Cell::from(bandwidth_line(incoming_rate, outgoing_rate)),
-                Cell::from(conn.process_name.as_deref().unwrap_or(NONE_PLACEHOLDER)).style(style_if_colored(field_process())),
+                Cell::from(conn.process_name.as_deref().unwrap_or(NONE_PLACEHOLDER))
+                    .style(style_if_colored(field_process())),
             ]);
 
             Row::new(cells)
@@ -194,12 +249,20 @@ fn draw_connections_list(
 
     f.render_stateful_widget(table, area, &mut state);
 
-    let inner = area.inner(Margin { horizontal: 1, vertical: 1 });
+    let inner = area.inner(Margin {
+        horizontal: 1,
+        vertical: 1,
+    });
     let header_height = 2_u16;
     for i in 0..(inner.height.saturating_sub(header_height) as usize) {
         let idx = scroll_offset + i;
-        if idx >= connections.len() { break; }
-        click_regions.register(Rect::new(inner.x, inner.y + header_height + i as u16, inner.width, 1), ClickAction::SelectConnection(idx));
+        if idx >= connections.len() {
+            break;
+        }
+        click_regions.register(
+            Rect::new(inner.x, inner.y + header_height + i as u16, inner.width, 1),
+            ClickAction::SelectConnection(idx),
+        );
     }
 }
 
@@ -213,62 +276,113 @@ fn draw_grouped_connections_list(
     _click_regions: &mut ClickableRegions,
 ) {
     let widths = [Constraint::Min(0); 10]; // Simplified widths for now
-    let rows: Vec<Row> = grouped_rows.iter().map(|row| {
-        match row {
-            GroupedRow::Group { process_name, stats, expanded } => {
+    let rows: Vec<Row> = grouped_rows
+        .iter()
+        .map(|row| match row {
+            GroupedRow::Group {
+                process_name,
+                stats,
+                expanded,
+            } => {
                 let indicator = if *expanded { "▼" } else { "▶" };
                 let mut cells = vec![
                     Cell::from(""),
-                    Cell::from(Line::from(vec![Span::styled(format!("{} {}", indicator, process_name), bold_fg(accent())), Span::raw(format!(" ({})", stats.connection_count))])),
-                    Cell::from(""), Cell::from(""),
+                    Cell::from(Line::from(vec![
+                        Span::styled(format!("{} {}", indicator, process_name), bold_fg(accent())),
+                        Span::raw(format!(" ({})", stats.connection_count)),
+                    ])),
+                    Cell::from(""),
+                    Cell::from(""),
                 ];
-                if show_location { cells.push(Cell::from("")); }
+                if show_location {
+                    cells.push(Cell::from(""));
+                }
                 cells.extend([
-                    Cell::from(format!("TCP:{} UDP:{}", stats.tcp_count, stats.udp_count)).style(fg(muted())),
-                    Cell::from(""), Cell::from(""),
-                    Cell::from(bandwidth_line(format_rate_compact(stats.total_incoming_rate_bps), format_rate_compact(stats.total_outgoing_rate_bps))),
+                    Cell::from(format!("TCP:{} UDP:{}", stats.tcp_count, stats.udp_count))
+                        .style(fg(muted())),
+                    Cell::from(""),
+                    Cell::from(""),
+                    Cell::from(bandwidth_line(
+                        format_rate_compact(stats.total_incoming_rate_bps),
+                        format_rate_compact(stats.total_outgoing_rate_bps),
+                    )),
                 ]);
                 Row::new(cells).style(Style::default().bg(Color::Rgb(30, 34, 42)))
             }
-            GroupedRow::Connection { connection, is_last_in_group, .. } => {
-                let prefix = if *is_last_in_group { "  └── " } else { "  ├── " };
+            GroupedRow::Connection {
+                connection,
+                is_last_in_group,
+                ..
+            } => {
+                let prefix = if *is_last_in_group {
+                    "  └── "
+                } else {
+                    "  ├── "
+                };
                 let mut cells = vec![
                     status_indicator_cell(connection),
-                    Cell::from(Line::from(vec![Span::styled(prefix, fg(muted())), Span::raw(connection.protocol.to_string())])),
-                    Cell::from(connection.local_addr.to_string()).style(style_if_colored(field_local_addr())),
-                    Cell::from(connection.remote_addr.to_string()).style(style_if_colored(field_remote_addr())),
+                    Cell::from(Line::from(vec![
+                        Span::styled(prefix, fg(muted())),
+                        Span::raw(connection.protocol.to_string()),
+                    ])),
+                    Cell::from(connection.local_addr.to_string())
+                        .style(style_if_colored(field_local_addr())),
+                    Cell::from(connection.remote_addr.to_string())
+                        .style(style_if_colored(field_remote_addr())),
                 ];
-                if show_location { cells.push(Cell::from("-")); }
+                if show_location {
+                    cells.push(Cell::from("-"));
+                }
                 cells.extend([
-                    Cell::from(connection.state()).style(style_if_colored(fg(state_color(connection)))),
-                    Cell::from("-"), Cell::from("-"),
-                    Cell::from(bandwidth_line(format_rate_compact(connection.current_incoming_rate_bps), format_rate_compact(connection.current_outgoing_rate_bps))),
+                    Cell::from(connection.state())
+                        .style(style_if_colored(fg(state_color(connection)))),
+                    Cell::from("-"),
+                    Cell::from("-"),
+                    Cell::from(bandwidth_line(
+                        format_rate_compact(connection.current_incoming_rate_bps),
+                        format_rate_compact(connection.current_outgoing_rate_bps),
+                    )),
                 ]);
                 Row::new(cells)
             }
-        }
-    }).collect();
+        })
+        .collect();
 
     let mut state = ratatui::widgets::TableState::default();
     if let Some(idx) = ui_state.get_selected_grouped_index(grouped_rows) {
         state.select(Some(idx.saturating_sub(ui_state.grouped_scroll_offset)));
     }
 
-    let table = Table::new(rows, &widths).block(panel_block(" Grouped Connections ")).row_highlight_style(row_highlight()).highlight_symbol("> ");
+    let table = Table::new(rows, &widths)
+        .block(panel_block(" Grouped Connections "))
+        .row_highlight_style(row_highlight())
+        .highlight_symbol("> ");
     f.render_stateful_widget(table, area, &mut state);
 }
 
-fn draw_stats_panel(f: &mut Frame, connections: &[Connection], stats: &AppStats, app: &App, area: Rect) -> anyhow::Result<()> {
+fn draw_stats_panel(
+    f: &mut Frame,
+    connections: &[Connection],
+    stats: &AppStats,
+    app: &App,
+    area: Rect,
+) -> anyhow::Result<()> {
     let block = panel_block(" System ");
     let inner = block.inner(area);
     f.render_widget(block, area);
 
     let active_count = connections.iter().filter(|c| !c.is_historic).count();
-    let packets = stats.packets_processed.load(std::sync::atomic::Ordering::Relaxed);
+    let packets = stats
+        .packets_processed
+        .load(std::sync::atomic::Ordering::Relaxed);
 
     let mut lines = vec![
         Line::from(Span::styled("Statistics", bold_fg(heading()))),
-        Line::from(format!("Interface: {}", app.get_current_interface().unwrap_or_else(|| "-".to_string()))),
+        Line::from(format!(
+            "Interface: {}",
+            app.get_current_interface()
+                .unwrap_or_else(|| "-".to_string())
+        )),
         Line::from(format!("Connections: {}", active_count)),
         Line::from(format!("Packets: {}", packets)),
         Line::from(""),

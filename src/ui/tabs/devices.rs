@@ -1,8 +1,8 @@
-use ratatui::prelude::*;
-use ratatui::widgets::{Cell, Row, Table, Block, Borders};
 use crate::app::App;
 use crate::network::types::Device;
 use crate::ui::*;
+use ratatui::prelude::*;
+use ratatui::widgets::{Block, Borders, Cell, Row, Table};
 
 pub fn draw_devices(
     f: &mut Frame,
@@ -82,11 +82,7 @@ fn draw_devices_table(
     let rows: Vec<Row> = visible_devices
         .iter()
         .map(|d| {
-            let status_style = if d.is_online {
-                fg(ok())
-            } else {
-                fg(muted())
-            };
+            let status_style = if d.is_online { fg(ok()) } else { fg(muted()) };
 
             let last_seen_str = format_system_time(d.last_seen);
             let first_seen_str = format_system_time(d.first_seen);
@@ -140,11 +136,19 @@ fn draw_devices_table(
 
     f.render_stateful_widget(table, area, &mut state);
 
-    let inner = area.inner(Margin { horizontal: 1, vertical: 1 });
+    let inner = area.inner(Margin {
+        horizontal: 1,
+        vertical: 1,
+    });
     let header_height = 1_u16;
     for i in 0..(inner.height.saturating_sub(header_height) as usize) {
         let device_idx = scroll_offset + i;
-        if device_idx >= devices_sorted.len() { break; }
-        click_regions.register(Rect::new(inner.x, inner.y + header_height + i as u16, inner.width, 1), ClickAction::SelectDevice(device_idx));
+        if device_idx >= devices_sorted.len() {
+            break;
+        }
+        click_regions.register(
+            Rect::new(inner.x, inner.y + header_height + i as u16, inner.width, 1),
+            ClickAction::SelectDevice(device_idx),
+        );
     }
 }

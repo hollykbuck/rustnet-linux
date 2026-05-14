@@ -1,8 +1,8 @@
+use crate::network::dns::DnsResolver;
+use crate::network::types::{ApplicationProtocol, Connection, Protocol};
 use serde_json::json;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
-use crate::network::dns::DnsResolver;
-use crate::network::types::{Connection, ApplicationProtocol, Protocol};
 
 /// Open or create a file for appending with restrictive permissions (0o600 on Unix).
 ///

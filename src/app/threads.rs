@@ -8,9 +8,9 @@ use std::sync::{Arc, RwLock};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
-use crate::app::logging::{log_connection_event, log_pcap_connection};
-use crate::app::state::{update_connection, update_device, QUIC_CONNECTION_MAPPING};
 use crate::app::ProcessDetectionStatus;
+use crate::app::logging::{log_connection_event, log_pcap_connection};
+use crate::app::state::{QUIC_CONNECTION_MAPPING, update_connection, update_device};
 use crate::network::capture::{CaptureConfig, PacketReader, setup_packet_capture};
 use crate::network::interface_stats::{InterfaceStats, InterfaceStatsProvider};
 use crate::network::parser::{PacketParser, ParserConfig};
@@ -432,11 +432,7 @@ impl crate::app::App {
                                 );
 
                                 // Update device discovery tracker
-                                update_device(
-                                    &devices,
-                                    parsed,
-                                    oui_lookup.clone(),
-                                );
+                                update_device(&devices, parsed, oui_lookup.clone());
 
                                 parsed_count += 1;
                             }
@@ -636,7 +632,7 @@ impl crate::app::App {
                                     if c.is_historic || c.protocol != listener.protocol {
                                         return false;
                                     }
-                                    
+
                                     // Match port
                                     if c.local_addr.port() != listener.local_addr.port() {
                                         return false;

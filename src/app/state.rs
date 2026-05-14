@@ -6,8 +6,9 @@ use std::sync::atomic::Ordering;
 use std::sync::{Arc, LazyLock, Mutex};
 use std::time::{Duration, SystemTime};
 
+use crate::app::logging::log_connection_event;
 use crate::app::types::AppStats;
-use crate::network::bogon::{classify, Scope};
+use crate::network::bogon::{Scope, classify};
 use crate::network::dns::DnsResolver;
 use crate::network::merge::{create_connection_from_packet, merge_packet_into_connection};
 use crate::network::oui::OuiLookup;
@@ -16,7 +17,6 @@ use crate::network::types::{
     ApplicationProtocol, ArpOperation, Connection, ConnectionKey, Device, Protocol, ProtocolState,
     RttTracker,
 };
-use crate::app::logging::log_connection_event;
 
 /// Sort connections based on the specified column and direction
 pub fn sort_connections(
@@ -252,9 +252,10 @@ pub fn update_device(
 
         // Special handling for IPv4 broadcast
         if let IpAddr::V4(v4) = ip
-            && (v4.is_broadcast() || v4.octets()[3] == 255) {
-                return;
-            }
+            && (v4.is_broadcast() || v4.octets()[3] == 255)
+        {
+            return;
+        }
 
         // Signal strength: ARP and DHCP are definitive.
         let is_definitive = force || is_dhcp;
@@ -288,8 +289,10 @@ pub fn update_device(
                     let is_stale = d
                         .last_seen
                         .duration_since(SystemTime::UNIX_EPOCH)
-                        .is_ok_and(|_| d.last_seen.elapsed().unwrap_or_default() > Duration::from_secs(3600));
-                    
+                        .is_ok_and(|_| {
+                            d.last_seen.elapsed().unwrap_or_default() > Duration::from_secs(3600)
+                        });
+
                     if is_definitive || is_stale {
                         d.ip = ip;
                     }
@@ -339,7 +342,12 @@ pub fn update_device(
         // For IP protocols, use the local and remote endpoints from the packet.
         // `upsert_device` will apply the scope heuristic internally.
         if parsed.is_outgoing {
-            upsert_device(parsed.local_addr.ip(), parsed.local_mac.clone(), true, false);
+            upsert_device(
+                parsed.local_addr.ip(),
+                parsed.local_mac.clone(),
+                true,
+                false,
+            );
             upsert_device(
                 parsed.remote_addr.ip(),
                 parsed.remote_mac.clone(),
@@ -353,7 +361,12 @@ pub fn update_device(
                 false,
                 false,
             );
-            upsert_device(parsed.remote_addr.ip(), parsed.remote_mac.clone(), true, false);
+            upsert_device(
+                parsed.remote_addr.ip(),
+                parsed.remote_mac.clone(),
+                true,
+                false,
+            );
         }
     }
 }

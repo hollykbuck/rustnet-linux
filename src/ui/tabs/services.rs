@@ -1,8 +1,8 @@
-use ratatui::prelude::*;
-use ratatui::widgets::{Cell, Row, Table, Paragraph};
 use crate::app::App;
 use crate::network::types::{Listener, Protocol};
 use crate::ui::*;
+use ratatui::prelude::*;
+use ratatui::widgets::{Cell, Paragraph, Row, Table};
 
 pub fn draw_services(
     f: &mut Frame,
@@ -38,7 +38,10 @@ fn draw_services_summary(f: &mut Frame, listeners: &[Listener], area: Rect) {
         .split(area);
 
     // 1. TCP BIND Panel
-    let tcp_listeners = listeners.iter().filter(|l| l.protocol == Protocol::Tcp).count();
+    let tcp_listeners = listeners
+        .iter()
+        .filter(|l| l.protocol == Protocol::Tcp)
+        .count();
     let bind_block = panel_block(" TCP BIND ");
     let bind_inner = bind_block.inner(chunks[0]);
     f.render_widget(bind_block, chunks[0]);
@@ -57,7 +60,9 @@ fn draw_services_summary(f: &mut Frame, listeners: &[Listener], area: Rect) {
     ])];
 
     for (addr, count) in addr_vec.iter().take(3) {
-        let bar_len = (bind_inner.width as usize).saturating_sub(15).min(*count * 2);
+        let bar_len = (bind_inner.width as usize)
+            .saturating_sub(15)
+            .min(*count * 2);
         bind_lines.push(Line::from(vec![
             Span::styled(format!("{:<10} ", addr), fg(muted())),
             Span::styled("█".repeat(bar_len), fg(primary())),
@@ -71,9 +76,16 @@ fn draw_services_summary(f: &mut Frame, listeners: &[Listener], area: Rect) {
     let exposure_inner = exposure_block.inner(chunks[1]);
     f.render_widget(exposure_block, chunks[1]);
 
-    let network_facing = listeners.iter().filter(|l| !l.local_addr.ip().is_loopback()).count();
+    let network_facing = listeners
+        .iter()
+        .filter(|l| !l.local_addr.ip().is_loopback())
+        .count();
     let localhost_only = tcp_listeners.saturating_sub(network_facing);
-    let exposure_pct = if tcp_listeners > 0 { (network_facing as f64 / tcp_listeners as f64) * 100.0 } else { 0.0 };
+    let exposure_pct = if tcp_listeners > 0 {
+        (network_facing as f64 / tcp_listeners as f64) * 100.0
+    } else {
+        0.0
+    };
 
     let exposure_lines = vec![
         Line::from(vec![
@@ -103,7 +115,10 @@ fn draw_services_summary(f: &mut Frame, listeners: &[Listener], area: Rect) {
     let services_inner = services_block.inner(chunks[2]);
     f.render_widget(services_block, chunks[2]);
 
-    let active_services = listeners.iter().filter(|l| l.active_connections > 0).count();
+    let active_services = listeners
+        .iter()
+        .filter(|l| l.active_connections > 0)
+        .count();
     let total_conn: usize = listeners.iter().map(|l| l.active_connections).sum();
 
     let services_lines = vec![
@@ -114,7 +129,10 @@ fn draw_services_summary(f: &mut Frame, listeners: &[Listener], area: Rect) {
         Line::from(vec![
             Span::styled(" ● ", fg(ok())),
             Span::raw(format!("{} active", active_services)),
-            Span::raw(format!("  ○ {} silent", listeners.len().saturating_sub(active_services))),
+            Span::raw(format!(
+                "  ○ {} silent",
+                listeners.len().saturating_sub(active_services)
+            )),
         ]),
         Line::from(vec![
             Span::styled(" ⇄ ", fg(primary())),
@@ -148,7 +166,8 @@ fn draw_listeners_table(
     let scroll_offset = ui_state.services_scroll_offset;
     let visible_rows = ui_state.visible_rows.max(1);
     let window_end = (scroll_offset + visible_rows + 1).min(listeners_sorted.len());
-    let visible_listeners = &listeners_sorted[scroll_offset.min(listeners_sorted.len())..window_end];
+    let visible_listeners =
+        &listeners_sorted[scroll_offset.min(listeners_sorted.len())..window_end];
 
     let rows: Vec<Row> = visible_listeners
         .iter()
@@ -216,11 +235,19 @@ fn draw_listeners_table(
 
     f.render_stateful_widget(table, area, &mut state);
 
-    let inner = area.inner(Margin { horizontal: 1, vertical: 1 });
+    let inner = area.inner(Margin {
+        horizontal: 1,
+        vertical: 1,
+    });
     let header_height = 1_u16;
     for i in 0..(inner.height.saturating_sub(header_height) as usize) {
         let service_idx = scroll_offset + i;
-        if service_idx >= listeners_sorted.len() { break; }
-        click_regions.register(Rect::new(inner.x, inner.y + header_height + i as u16, inner.width, 1), ClickAction::SelectService(service_idx));
+        if service_idx >= listeners_sorted.len() {
+            break;
+        }
+        click_regions.register(
+            Rect::new(inner.x, inner.y + header_height + i as u16, inner.width, 1),
+            ClickAction::SelectService(service_idx),
+        );
     }
 }
