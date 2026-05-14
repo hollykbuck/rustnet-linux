@@ -22,8 +22,11 @@ use ratatui::{
 use crate::app::{App, AppStats};
 use crate::network::dns::DnsResolver;
 use crate::network::types::{
-    AppProtocolDistribution, Connection, Protocol, ProtocolState, TcpState, TrafficHistory,
+    AppProtocolDistribution, Connection, Device, Listener, Protocol, ProtocolState, TcpState,
+    TrafficHistory,
 };
+
+use std::time::SystemTime;
 
 pub type Terminal<B> = RatatuiTerminal<B>;
 
@@ -1133,7 +1136,9 @@ pub fn draw(
             };
             draw_overview(f, &ctx, content_area, click_regions)?;
         }
-        1 => {
+        1 => draw_devices(f, app, content_area)?,
+        2 => draw_services(f, app, content_area)?,
+        3 => {
             let dns_resolver = app.get_dns_resolver();
             draw_connection_details(
                 f,
@@ -1144,9 +1149,9 @@ pub fn draw(
                 click_regions,
             )?
         }
-        2 => draw_interface_stats(f, app, content_area)?,
-        3 => draw_graph_tab(f, app, connections, content_area)?,
-        4 => draw_help(f, content_area)?,
+        4 => draw_interface_stats(f, app, content_area)?,
+        5 => draw_graph_tab(f, app, connections, content_area)?,
+        6 => draw_help(f, content_area)?,
         _ => {}
     }
 
@@ -1164,7 +1169,15 @@ pub fn draw(
 /// Custom styling: each title gets one space of padding so the active tab
 /// renders as a reverse-video pill. Inactive titles use the muted palette
 /// so the bar reads as a quiet header strip with one obvious focus point.
-const TAB_TITLES: [&str; 5] = ["Overview", "Details", "Interfaces", "Graph", "Help"];
+const TAB_TITLES: [&str; 7] = [
+    "Overview",
+    "Devices",
+    "Services",
+    "Details",
+    "Interfaces",
+    "Graph",
+    "Help",
+];
 const TAB_DIVIDER: &str = " ▏ ";
 
 fn draw_tabs(f: &mut Frame, ui_state: &UIState, area: Rect, click_regions: &mut ClickableRegions) {
@@ -4612,8 +4625,12 @@ fn default_status_line(selected_tab: usize) -> &'static str {
         0 => {
             " 'h' help | Tab/Shift+Tab switch tabs | '/' filter | 'a' group | 't' history | 'c' copy"
         }
+        // Devices
+        1 => " 'h' help | Tab/Shift+Tab switch tabs | Esc back to Overview",
+        // Services
+        2 => " 'h' help | Tab/Shift+Tab switch tabs | Esc back to Overview",
         // Details
-        1 => " 'h' help | Tab/Shift+Tab switch tabs | 'c' copy remote addr | Esc back to Overview",
+        3 => " 'h' help | Tab/Shift+Tab switch tabs | 'c' copy remote addr | Esc back to Overview",
         // Interfaces / Graph / Help
         _ => " 'h' help | Tab/Shift+Tab switch tabs | Esc back to Overview",
     }
@@ -5029,4 +5046,295 @@ mod tests {
         );
         assert_eq!(ui_state.selected_connection_key, Some(connections[0].key()));
     }
+}
+
+/// Draw the Services/Listeners tab
+fn draw_services(f: &mut Frame, app: &App, area: Rect) -> Result<()> {
+    let listeners = app.get_listeners();
+
+    let main_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(7), // Summary panels
+            Constraint::Min(0),    // Listeners table
+        ])
+        .split(area);
+
+    draw_services_summary(f, &listeners, main_chunks[0]);
+    draw_listeners_table(f, &listeners, main_chunks[1]);
+
+    Ok(())
+}
+
+fn draw_services_summary(f: &mut Frame, listeners: &[Listener], area: Rect) {
+    let chunks = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([
+            Constraint::Percentage(33),
+            Constraint::Percentage(34),
+            Constraint::Percentage(33),
+        ])
+        .split(area);
+
+    // 1. TCP BIND Panel
+    let tcp_listeners = listeners.iter().filter(|l| l.protocol == Protocol::Tcp).count();
+    let bind_block = panel_block(" TCP BIND ");
+    let bind_inner = bind_block.inner(chunks[0]);
+    f.render_widget(bind_block, chunks[0]);
+
+    // Simple bar chart simulation for addresses
+    let mut addr_counts = std::collections::HashMap::new();
+    for l in listeners.iter().filter(|l| l.protocol == Protocol::Tcp) {
+        let ip = l.local_addr.ip().to_string();
+        *addr_counts.entry(ip).or_insert(0) += 1;
+    }
+    let mut addr_vec: Vec<_> = addr_counts.into_iter().collect();
+    addr_vec.sort_by_key(|&(_, count)| std::cmp::Reverse(count));
+
+    let mut bind_lines = vec![Line::from(vec![
+        Span::styled(format!(" {} ", tcp_listeners), theme::primary()),
+        Span::raw("listeners"),
+    ])];
+
+    for (addr, count) in addr_vec.iter().take(3) {
+        let bar_len = (bind_inner.width as usize).saturating_sub(15).min(*count * 2);
+        bind_lines.push(Line::from(vec![
+            Span::styled(format!("{:<10} ", addr), theme::fg(theme::muted())),
+            Span::styled("█".repeat(bar_len), theme::primary()),
+            Span::raw(format!(" {}", count)),
+        ]));
+    }
+    f.render_widget(Paragraph::new(bind_lines), bind_inner);
+
+    // 2. TCP EXPOSURE Panel
+    let exposure_block = panel_block(" TCP EXPOSURE ");
+    let exposure_inner = exposure_block.inner(chunks[1]);
+    f.render_widget(exposure_block, chunks[1]);
+
+    let network_facing = listeners.iter().filter(|l| !l.local_addr.ip().is_loopback()).count();
+    let localhost_only = tcp_listeners.saturating_sub(network_facing);
+    let exposure_pct = if tcp_listeners > 0 { (network_facing as f64 / tcp_listeners as f64) * 100.0 } else { 0.0 };
+
+    let exposure_lines = vec![
+        Line::from(vec![
+            Span::styled(" Exposure ", theme::fg(theme::muted())),
+            if exposure_pct > 50.0 {
+                Span::styled("High", theme::fg(theme::err()))
+            } else if exposure_pct > 20.0 {
+                Span::styled("Medium", theme::fg(theme::warn()))
+            } else {
+                Span::styled("Low", theme::fg(theme::ok()))
+            },
+            Span::raw(format!(" ({:.0}%)", exposure_pct)),
+        ]),
+        Line::from(vec![
+            Span::styled(" ● ", theme::fg(theme::err())),
+            Span::raw(format!("{} network-facing", network_facing)),
+        ]),
+        Line::from(vec![
+            Span::styled(" ● ", theme::fg(theme::ok())),
+            Span::raw(format!("{} localhost only", localhost_only)),
+        ]),
+    ];
+    f.render_widget(Paragraph::new(exposure_lines), exposure_inner);
+
+    // 3. SERVICES Panel
+    let services_block = panel_block(" SERVICES ");
+    let services_inner = services_block.inner(chunks[2]);
+    f.render_widget(services_block, chunks[2]);
+
+    let active_services = listeners.iter().filter(|l| l.active_connections > 0).count();
+    let total_conn: usize = listeners.iter().map(|l| l.active_connections).sum();
+
+    let services_lines = vec![
+        Line::from(vec![
+            Span::styled(format!(" {} ", listeners.len()), theme::primary()),
+            Span::raw("total services"),
+        ]),
+        Line::from(vec![
+            Span::styled(" ● ", theme::fg(theme::ok())),
+            Span::raw(format!("{} active", active_services)),
+            Span::raw(format!("  ○ {} silent", listeners.len().saturating_sub(active_services))),
+        ]),
+        Line::from(vec![
+            Span::styled(" ⇄ ", theme::primary()),
+            Span::raw(format!("{} total connections", total_conn)),
+        ]),
+    ];
+    f.render_widget(Paragraph::new(services_lines), services_inner);
+}
+
+fn draw_listeners_table(f: &mut Frame, listeners: &[Listener], area: Rect) {
+    let header_style = theme::fg(theme::heading());
+    let header = Row::new(vec![
+        Cell::from(" Protocol"),
+        Cell::from(" Local Address"),
+        Cell::from(" Service"),
+        Cell::from(" Process"),
+        Cell::from(" Conns"),
+    ])
+    .style(header_style)
+    .height(1);
+
+    let mut listeners_sorted = listeners.to_vec();
+    listeners_sorted.sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
+
+    let rows: Vec<Row> = listeners_sorted.iter().map(|l| {
+        let (proto_icon, icon_color) = match l.protocol {
+            Protocol::Tcp => ("🔑 ", theme::fg(Color::Yellow)),
+            Protocol::Udp => ("🔗 ", theme::fg(Color::Cyan)),
+            _ => ("  ", theme::fg(Color::Reset)),
+        };
+
+        let proto_color = match l.protocol {
+            Protocol::Tcp => theme::tcp_established(),
+            Protocol::Udp => Color::Cyan,
+            _ => Color::Reset,
+        };
+
+        let active_style = if l.active_connections > 0 {
+            theme::fg(theme::ok())
+        } else {
+            theme::fg(theme::muted())
+        };
+
+        Row::new(vec![
+            Cell::from(Line::from(vec![
+                Span::styled(proto_icon, icon_color),
+                Span::styled(l.protocol.to_string(), theme::fg(proto_color)),
+            ])),
+            Cell::from(l.local_addr.to_string()),
+            Cell::from(l.service_name.as_deref().unwrap_or("unknown")),
+            Cell::from(format!("{} ({})", l.process_name.as_deref().unwrap_or("unknown"), l.pid.unwrap_or(0))),
+            Cell::from(Line::from(vec![
+                Span::styled(" ● ", active_style),
+                Span::raw(l.active_connections.to_string()),
+            ])),
+        ])
+    }).collect();
+
+    let table = Table::new(rows, [
+        Constraint::Length(12),
+        Constraint::Length(25),
+        Constraint::Length(15),
+        Constraint::Min(20),
+        Constraint::Length(10),
+    ])
+    .header(header)
+    .block(panel_block(format!(" TCP/UDP SERVICES ({}) ", listeners.len())))
+    .row_highlight_style(theme::row_highlight());
+
+    f.render_widget(table, area);
+}
+
+/// Draw the Devices tab for LAN discovery
+fn draw_devices(f: &mut Frame, app: &App, area: Rect) -> Result<()> {
+    let devices = app.get_devices();
+    
+    let main_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3), // Summary bar
+            Constraint::Min(0),    // Devices table
+        ])
+        .split(area);
+
+    draw_devices_summary(f, app, &devices, main_chunks[0]);
+    draw_devices_table(f, &devices, main_chunks[1]);
+
+    Ok(())
+}
+
+fn draw_devices_summary(f: &mut Frame, _app: &App, devices: &[Device], area: Rect) {
+    let online_count = devices.iter().filter(|d| d.is_online).count();
+    
+    // In a real implementation, we would track ARP scan progress.
+    // For now, we show a simplified summary.
+    let summary_text = Line::from(vec![
+        Span::styled(" Devices ", theme::fg(theme::heading())),
+        Span::styled(format!(" {}/{} online ", online_count, devices.len()), theme::primary()),
+        Span::raw(" ▏ "),
+        Span::styled(" 🔍 Discovery Active ", theme::fg(theme::ok())),
+    ]);
+
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .border_style(theme::fg(theme::muted()))
+        .title(summary_text);
+    
+    f.render_widget(block, area);
+}
+
+fn draw_devices_table(f: &mut Frame, devices: &[Device], area: Rect) {
+    let header_style = theme::fg(theme::heading());
+    let header = Row::new(vec![
+        Cell::from(" Status"),
+        Cell::from(" IP Address"),
+        Cell::from(" Hostname"),
+        Cell::from(" MAC"),
+        Cell::from(" Vendor"),
+        Cell::from(" First Seen"),
+        Cell::from(" Last Seen"),
+        Cell::from(" ↓ Recv"),
+        Cell::from(" ↑ Sent"),
+        Cell::from(" Details"),
+    ])
+    .style(header_style)
+    .height(1);
+
+    let mut devices_sorted = devices.to_vec();
+    devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+
+    let rows: Vec<Row> = devices_sorted.iter().map(|d| {
+        let status_style = if d.is_online {
+            theme::fg(theme::ok())
+        } else {
+            theme::fg(theme::muted())
+        };
+
+        let last_seen_str = format_system_time(d.last_seen);
+        let first_seen_str = format_system_time(d.first_seen);
+        
+        let details = d.protocols.iter().cloned().collect::<Vec<_>>().join(" ");
+
+        Row::new(vec![
+            Cell::from(Line::from(vec![
+                Span::styled(" ● ", status_style),
+                Span::raw(if d.is_online { "ONLINE" } else { "OFFLINE" }),
+            ])),
+            Cell::from(d.ip.to_string()),
+            Cell::from(d.hostname.as_deref().unwrap_or("—")),
+            Cell::from(d.mac.clone()),
+            Cell::from(d.vendor.as_deref().unwrap_or("—")),
+            Cell::from(first_seen_str),
+            Cell::from(last_seen_str),
+            Cell::from(format_bytes(d.bytes_received)),
+            Cell::from(format_bytes(d.bytes_sent)),
+            Cell::from(details),
+        ])
+    }).collect();
+
+    let table = Table::new(rows, [
+        Constraint::Length(10), // Status
+        Constraint::Length(16), // IP
+        Constraint::Length(15), // Hostname
+        Constraint::Length(18), // MAC
+        Constraint::Length(20), // Vendor
+        Constraint::Length(12), // First
+        Constraint::Length(12), // Last
+        Constraint::Length(12), // Recv
+        Constraint::Length(12), // Sent
+        Constraint::Min(20),    // Details
+    ])
+    .header(header)
+    .block(panel_block(format!(" DISCOVERED DEVICES ({}) ", devices.len())))
+    .row_highlight_style(theme::row_highlight());
+
+    f.render_widget(table, area);
+}
+
+fn format_system_time(time: SystemTime) -> String {
+    use chrono::{DateTime, Local};
+    let datetime: DateTime<Local> = time.into();
+    datetime.format("%H:%M:%S").to_string()
 }

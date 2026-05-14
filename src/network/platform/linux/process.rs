@@ -1,7 +1,7 @@
 // network/platform/linux/process.rs - Linux procfs-based process lookup
 
 use crate::network::platform::{ConnectionKey, ProcessLookup};
-use crate::network::types::{Connection, Protocol};
+use crate::network::types::{Connection, Listener, Protocol};
 use anyhow::Result;
 use std::collections::HashMap;
 use std::fs;
@@ -239,6 +239,68 @@ impl ProcessLookup for LinuxProcessLookup {
             // Progressively relax the key until we find a match.
             Self::fallback_lookup(&cache.lookup, &key)
         }
+    }
+
+    fn get_listeners(&self) -> Result<Vec<Listener>> {
+        let mut listeners = Vec::new();
+        let (inode_to_process, _) = Self::build_inode_map()?;
+
+        let mut parse_listeners = |path: &str, protocol: Protocol| -> Result<()> {
+            let content = match fs::read_to_string(path) {
+                Ok(c) => c,
+                Err(_) => return Ok(()),
+            };
+
+            for (i, line) in content.lines().enumerate() {
+                if i == 0 {
+                    continue;
+                }
+
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() < 10 {
+                    continue;
+                }
+
+                // st column (index 3) is 0A for LISTEN in TCP.
+                if protocol == Protocol::Tcp && parts[3] != "0A" {
+                    continue;
+                }
+                
+                // For UDP, we only care about "listeners" which have no remote address.
+                // rem_address is at index 2.
+                if protocol == Protocol::Udp && parts[2] != "00000000:0000" && parts[2] != "00000000000000000000000000000000:0000" {
+                    continue;
+                }
+
+                if let Some(local_addr) = Self::parse_hex_address(parts[1]) {
+                    let mut listener = Listener {
+                        protocol,
+                        local_addr,
+                        pid: None,
+                        process_name: None,
+                        service_name: None,
+                        active_connections: 0,
+                    };
+
+                    if let Ok(inode) = parts[9].parse::<u64>() {
+                        if let Some((pid, name)) = inode_to_process.get(&inode) {
+                            listener.pid = Some(*pid);
+                            listener.process_name = Some(name.clone());
+                        }
+                    }
+
+                    listeners.push(listener);
+                }
+            }
+            Ok(())
+        };
+
+        parse_listeners("/proc/net/tcp", Protocol::Tcp)?;
+        parse_listeners("/proc/net/tcp6", Protocol::Tcp)?;
+        parse_listeners("/proc/net/udp", Protocol::Udp)?;
+        parse_listeners("/proc/net/udp6", Protocol::Udp)?;
+
+        Ok(listeners)
     }
 
     fn refresh(&self) -> Result<()> {

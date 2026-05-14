@@ -52,18 +52,42 @@ pub fn parse(
         return None;
     }
 
+    // Extract MAC addresses (Dest: bytes 0-5, Source: bytes 6-11)
+    let dst_mac = format!(
+        "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+        data[0], data[1], data[2], data[3], data[4], data[5]
+    );
+    let src_mac = format!(
+        "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+        data[6], data[7], data[8], data[9], data[10], data[11]
+    );
+
     let (ethertype, offset) = extract_ethertype(data)?;
 
     match ethertype {
         0x0800 => {
             // IPv4
             log::trace!("Ethernet: IPv4 packet detected");
-            parser.parse_ipv4_packet_inner(data, offset, process_name, process_id)
+            parser.parse_ipv4_packet_inner(
+                data,
+                offset,
+                Some(src_mac),
+                Some(dst_mac),
+                process_name,
+                process_id,
+            )
         }
         0x86dd => {
             // IPv6
             log::trace!("Ethernet: IPv6 packet detected");
-            parser.parse_ipv6_packet_inner(data, offset, process_name, process_id)
+            parser.parse_ipv6_packet_inner(
+                data,
+                offset,
+                Some(src_mac),
+                Some(dst_mac),
+                process_name,
+                process_id,
+            )
         }
         0x0806 => {
             // ARP

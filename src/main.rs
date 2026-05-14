@@ -732,7 +732,7 @@ where
                                                     }
                                                     ui::GroupedRow::Connection { .. } => {
                                                         // Double-click connection: open Details tab
-                                                        ui_state.selected_tab = 1;
+                                                        ui_state.selected_tab = 3;
                                                     }
                                                 }
                                             }
@@ -740,7 +740,7 @@ where
                                             ui_state.set_selected_by_index(&connections, conn_idx);
                                             if is_double_click {
                                                 // Double-click connection in flat view: open Details tab
-                                                ui_state.selected_tab = 1;
+                                                ui_state.selected_tab = 3;
                                             }
                                         }
                                     }
@@ -903,7 +903,7 @@ where
                             (KeyCode::Tab, KeyModifiers::NONE) => {
                                 ui_state.quit_confirmation = false;
                                 ui_state.clear_confirmation = false;
-                                ui_state.selected_tab = (ui_state.selected_tab + 1) % 5;
+                                ui_state.selected_tab = (ui_state.selected_tab + 1) % 7;
                             }
 
                             // Shift+Tab navigation (backward)
@@ -911,7 +911,7 @@ where
                                 ui_state.quit_confirmation = false;
                                 ui_state.clear_confirmation = false;
                                 ui_state.selected_tab = if ui_state.selected_tab == 0 {
-                                    4 // Wrap to last tab
+                                    6 // Wrap to last tab
                                 } else {
                                     ui_state.selected_tab - 1
                                 };
@@ -923,7 +923,7 @@ where
                                 ui_state.clear_confirmation = false;
                                 ui_state.show_help = !ui_state.show_help;
                                 if ui_state.show_help {
-                                    ui_state.selected_tab = 4; // Switch to help tab
+                                    ui_state.selected_tab = 6; // Switch to help tab
                                 } else {
                                     ui_state.selected_tab = 0; // Back to overview
                                 }
@@ -933,10 +933,10 @@ where
                             (KeyCode::Char('i'), _) | (KeyCode::Char('I'), _) => {
                                 ui_state.quit_confirmation = false;
                                 ui_state.clear_confirmation = false;
-                                if ui_state.selected_tab == 2 {
+                                if ui_state.selected_tab == 4 {
                                     ui_state.selected_tab = 0; // Back to overview
                                 } else {
-                                    ui_state.selected_tab = 2; // Switch to interfaces tab
+                                    ui_state.selected_tab = 4; // Switch to interfaces tab
                                 }
                             }
 
@@ -1027,7 +1027,7 @@ where
                                     && !(ui_state.grouping_enabled && ui_state.is_group_selected())
                                 {
                                     // Switch to details view when on a connection (not a group header)
-                                    ui_state.selected_tab = 1;
+                                    ui_state.selected_tab = 3;
                                 }
                             }
 

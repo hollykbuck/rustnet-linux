@@ -21,6 +21,8 @@ use std::net::IpAddr;
 pub struct TransportParams {
     pub src_ip: IpAddr,
     pub dst_ip: IpAddr,
+    pub src_mac: Option<String>,
+    pub dst_mac: Option<String>,
     pub packet_len: usize,
     pub process_name: Option<String>,
     pub process_id: Option<u32>,
@@ -30,6 +32,8 @@ impl TransportParams {
     pub fn new(
         src_ip: IpAddr,
         dst_ip: IpAddr,
+        src_mac: Option<String>,
+        dst_mac: Option<String>,
         packet_len: usize,
         process_name: Option<String>,
         process_id: Option<u32>,
@@ -37,6 +41,8 @@ impl TransportParams {
         Self {
             src_ip,
             dst_ip,
+            src_mac,
+            dst_mac,
             packet_len,
             process_name,
             process_id,

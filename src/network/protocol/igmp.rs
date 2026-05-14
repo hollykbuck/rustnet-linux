@@ -58,11 +58,19 @@ pub fn parse(
         )
     };
 
+    let (local_mac, remote_mac) = if is_outgoing {
+        (params.src_mac.clone(), params.dst_mac.clone())
+    } else {
+        (params.dst_mac.clone(), params.src_mac.clone())
+    };
+
     Some(ParsedPacket {
         connection_key: format!("IGMP:{}-IGMP:{}", local_addr, remote_addr),
         protocol: Protocol::Igmp,
         local_addr,
         remote_addr,
+        local_mac,
+        remote_mac,
         tcp_header: None,
         protocol_state: ProtocolState::Igmp {
             igmp_type,
@@ -89,7 +97,7 @@ mod tests {
     }
 
     fn params(src: Ipv4Addr, dst: Ipv4Addr) -> TransportParams {
-        TransportParams::new(IpAddr::V4(src), IpAddr::V4(dst), 64, None, None)
+        TransportParams::new(IpAddr::V4(src), IpAddr::V4(dst), None, None, 64, None, None)
     }
 
     // IGMPv1 Membership Report (type 0x12)

@@ -1790,6 +1790,33 @@ fn smooth_rate(raw: f64, prev: f64) -> f64 {
     }
 }
 
+/// Represents a listening socket on the system
+#[derive(Debug, Clone)]
+pub struct Listener {
+    pub protocol: Protocol,
+    pub local_addr: SocketAddr,
+    pub pid: Option<u32>,
+    pub process_name: Option<String>,
+    pub service_name: Option<String>,
+    /// Number of active connections to this listener
+    pub active_connections: usize,
+}
+
+/// Represents a discovered device on the local network
+#[derive(Debug, Clone)]
+pub struct Device {
+    pub ip: std::net::IpAddr,
+    pub mac: String,
+    pub vendor: Option<String>,
+    pub hostname: Option<String>,
+    pub first_seen: SystemTime,
+    pub last_seen: SystemTime,
+    pub bytes_sent: u64,
+    pub bytes_received: u64,
+    pub protocols: std::collections::HashSet<String>,
+    pub is_online: bool,
+}
+
 #[derive(Debug, Clone)]
 pub struct Connection {
     // Core identification

@@ -3,7 +3,7 @@
 use crate::network::platform::{ConnectionKey, DegradationReason, ProcessLookup};
 
 use super::process::LinuxProcessLookup;
-use crate::network::types::{Connection, Protocol};
+use crate::network::types::{Connection, Listener, Protocol};
 use anyhow::Result;
 use log::{debug, info, warn};
 use std::collections::HashMap;
@@ -385,6 +385,10 @@ mod ebpf_enhanced {
             }
         }
 
+        fn get_listeners(&self) -> Result<Vec<Listener>> {
+            self.procfs_lookup.get_listeners()
+        }
+
         fn refresh(&self) -> Result<()> {
             // Refresh the procfs lookup
             self.procfs_lookup.refresh()?;
@@ -617,6 +621,10 @@ mod procfs_only {
                 stats.failed_lookups += 1;
                 None
             }
+        }
+
+        fn get_listeners(&self) -> Result<Vec<Listener>> {
+            self.procfs_lookup.get_listeners()
         }
 
         fn refresh(&self) -> Result<()> {

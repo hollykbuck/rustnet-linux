@@ -5,7 +5,7 @@
 // - {platform}/process.rs: ProcessLookup implementation
 // - {platform}/interface_stats.rs: InterfaceStatsProvider implementation
 
-use crate::network::types::{Connection, Protocol};
+use crate::network::types::{Connection, Listener, Protocol};
 use anyhow::Result;
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -169,6 +169,11 @@ pub trait ProcessLookup: Send + Sync {
     /// Look up process information for a connection
     /// Returns (pid, process_name) if found
     fn get_process_for_connection(&self, conn: &Connection) -> Option<(u32, String)>;
+
+    /// Get all listening sockets on the system
+    fn get_listeners(&self) -> Result<Vec<Listener>> {
+        Ok(Vec::new()) // Default empty implementation
+    }
 
     /// Refresh internal caches if any (best-effort)
     fn refresh(&self) -> Result<()> {

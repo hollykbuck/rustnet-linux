@@ -26,6 +26,17 @@ pub fn parse_sll(
         return None;
     }
 
+    // Extract MAC address if present (offset 6, 8 bytes space, use length from offset 4)
+    let addr_len = u16::from_be_bytes([data[4], data[5]]) as usize;
+    let src_mac = if addr_len == 6 {
+        Some(format!(
+            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            data[6], data[7], data[8], data[9], data[10], data[11]
+        ))
+    } else {
+        None
+    };
+
     // Protocol type is at bytes 14-15 (EtherType)
     let protocol = u16::from_be_bytes([data[14], data[15]]);
 
@@ -33,14 +44,12 @@ pub fn parse_sll(
         0x0800 => {
             // IPv4 - payload starts at byte 16
             log::trace!("Linux SLL: IPv4 packet detected");
-            let ip_data = &data[16..];
-            parser.parse_raw_ipv4_packet(ip_data, process_name, process_id)
+            parser.parse_ipv4_packet_inner(data, 16, src_mac, None, process_name, process_id)
         }
         0x86dd => {
             // IPv6 - payload starts at byte 16
             log::trace!("Linux SLL: IPv6 packet detected");
-            let ip_data = &data[16..];
-            parser.parse_raw_ipv6_packet(ip_data, process_name, process_id)
+            parser.parse_ipv6_packet_inner(data, 16, src_mac, None, process_name, process_id)
         }
         0x0806 => {
             // ARP - payload starts at byte 16
@@ -101,6 +110,17 @@ pub fn parse_sll2(
         return None;
     }
 
+    // Extract MAC address if present (offset 12, 8 bytes space, use length from offset 11)
+    let addr_len = data[11] as usize;
+    let src_mac = if addr_len == 6 {
+        Some(format!(
+            "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
+            data[12], data[13], data[14], data[15], data[16], data[17]
+        ))
+    } else {
+        None
+    };
+
     // Protocol type is at bytes 0-1 (EtherType)
     let protocol = u16::from_be_bytes([data[0], data[1]]);
 
@@ -108,14 +128,12 @@ pub fn parse_sll2(
         0x0800 => {
             // IPv4 - payload starts at byte 20
             log::trace!("Linux SLL2: IPv4 packet detected");
-            let ip_data = &data[20..];
-            parser.parse_raw_ipv4_packet(ip_data, process_name, process_id)
+            parser.parse_ipv4_packet_inner(data, 20, src_mac, None, process_name, process_id)
         }
         0x86dd => {
             // IPv6 - payload starts at byte 20
             log::trace!("Linux SLL2: IPv6 packet detected");
-            let ip_data = &data[20..];
-            parser.parse_raw_ipv6_packet(ip_data, process_name, process_id)
+            parser.parse_ipv6_packet_inner(data, 20, src_mac, None, process_name, process_id)
         }
         0x0806 => {
             // ARP - payload starts at byte 20

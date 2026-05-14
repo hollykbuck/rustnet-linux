@@ -15,12 +15,14 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 pub use crate::network::protocol::tcp::{TcpFlags, TcpHeaderInfo};
 
 /// Result of parsing a packet
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct ParsedPacket {
     pub connection_key: String,
     pub protocol: Protocol,
     pub local_addr: SocketAddr,
     pub remote_addr: SocketAddr,
+    pub local_mac: Option<String>,
+    pub remote_mac: Option<String>,
     pub tcp_header: Option<TcpHeaderInfo>, // TCP header info (seq, ack, window, flags)
     pub protocol_state: ProtocolState,
     pub is_outgoing: bool,
@@ -286,6 +288,8 @@ impl PacketParser {
         &self,
         data: &[u8],
         offset: usize,
+        src_mac: Option<String>,
+        dst_mac: Option<String>,
         process_name: Option<String>,
         process_id: Option<u32>,
     ) -> Option<ParsedPacket> {
@@ -327,8 +331,15 @@ impl PacketParser {
 
         let transport_data = &ip_data[ip_header_len..];
 
-        let params =
-            TransportParams::new(src_ip, dst_ip, actual_packet_len, process_name, process_id);
+        let params = TransportParams::new(
+            src_ip,
+            dst_ip,
+            src_mac,
+            dst_mac,
+            actual_packet_len,
+            process_name,
+            process_id,
+        );
 
         match protocol_num {
             1 => protocol::icmp::parse(transport_data, params, &self.local_ips),
@@ -345,6 +356,8 @@ impl PacketParser {
         &self,
         data: &[u8],
         offset: usize,
+        src_mac: Option<String>,
+        dst_mac: Option<String>,
         process_name: Option<String>,
         process_id: Option<u32>,
     ) -> Option<ParsedPacket> {
@@ -395,8 +408,15 @@ impl PacketParser {
             self.parse_ipv6_extension_headers(next_header, transport_data);
         let final_transport_data = &transport_data[transport_offset..];
 
-        let params =
-            TransportParams::new(src_ip, dst_ip, actual_packet_len, process_name, process_id);
+        let params = TransportParams::new(
+            src_ip,
+            dst_ip,
+            src_mac,
+            dst_mac,
+            actual_packet_len,
+            process_name,
+            process_id,
+        );
 
         match final_next_header {
             58 => protocol::icmp::parse_v6(final_transport_data, params, &self.local_ips),
@@ -468,9 +488,9 @@ impl PacketParser {
 
         let arp_info = ArpInfo {
             operation,
-            sender_mac,
+            sender_mac: sender_mac.clone(),
             sender_ip,
-            target_mac,
+            target_mac: target_mac.clone(),
             target_ip,
             sender_vendor,
             target_vendor,
@@ -483,11 +503,19 @@ impl PacketParser {
             (SocketAddr::new(target_ip, 0), SocketAddr::new(sender_ip, 0))
         };
 
+        let (local_mac, remote_mac) = if is_outgoing {
+            (Some(sender_mac), Some(target_mac))
+        } else {
+            (Some(target_mac), Some(sender_mac))
+        };
+
         Some(ParsedPacket {
             connection_key: format!("ARP:{}-ARP:{}", local_addr, remote_addr),
             protocol: Protocol::Arp,
             local_addr,
             remote_addr,
+            local_mac,
+            remote_mac,
             tcp_header: None,
             protocol_state: ProtocolState::Arp(arp_info),
             is_outgoing,
@@ -532,8 +560,15 @@ impl PacketParser {
 
         let transport_data = &data[ip_header_len..];
 
-        let params =
-            TransportParams::new(src_ip, dst_ip, actual_packet_len, process_name, process_id);
+        let params = TransportParams::new(
+            src_ip,
+            dst_ip,
+            None,
+            None, // No MACs for raw IP
+            actual_packet_len,
+            process_name,
+            process_id,
+        );
 
         match protocol_num {
             1 => protocol::icmp::parse(transport_data, params, &self.local_ips),
@@ -598,8 +633,15 @@ impl PacketParser {
             self.parse_ipv6_extension_headers(next_header, transport_data);
         let final_transport_data = &transport_data[transport_offset..];
 
-        let params =
-            TransportParams::new(src_ip, dst_ip, actual_packet_len, process_name, process_id);
+        let params = TransportParams::new(
+            src_ip,
+            dst_ip,
+            None,
+            None, // No MACs for raw IP
+            actual_packet_len,
+            process_name,
+            process_id,
+        );
 
         match final_next_header {
             58 => protocol::icmp::parse_v6(final_transport_data, params, &self.local_ips),

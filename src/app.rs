@@ -29,11 +29,12 @@ use crate::network::{
     platform::create_process_lookup,
     services::ServiceLookup,
     types::{
-        ApplicationProtocol, Connection, ConnectionKey, DnsQueryType, Protocol, RttTracker,
-        TrafficHistory,
+        ApplicationProtocol, Connection, ConnectionKey, Device, DnsQueryType, Listener, Protocol,
+        RttTracker, TrafficHistory,
     },
 };
 
+use std::net::IpAddr;
 // Platform-specific interface stats provider
 #[cfg(target_os = "freebsd")]
 use crate::network::platform::FreeBSDStatsProvider as PlatformStatsProvider;
@@ -469,6 +470,12 @@ pub struct App {
     /// RTT tracker for latency measurement
     rtt_tracker: Arc<Mutex<RttTracker>>,
 
+    /// Active listening sockets on the system
+    listeners: Arc<RwLock<Vec<Listener>>>,
+
+    /// Discovered devices on local network
+    devices: Arc<DashMap<String, Device>>,
+
     /// DNS resolver for reverse DNS lookups
     dns_resolver: Option<Arc<DnsResolver>>,
 
@@ -580,6 +587,8 @@ impl App {
             interface_rates: Arc::new(DashMap::new()),
             traffic_history: Arc::new(RwLock::new(TrafficHistory::new(60))), // 60 seconds of history
             rtt_tracker: Arc::new(Mutex::new(RttTracker::new())),
+            listeners: Arc::new(RwLock::new(Vec::new())),
+            devices: Arc::new(DashMap::new()),
             dns_resolver,
             geoip_resolver,
             #[cfg(any(
@@ -909,6 +918,7 @@ impl App {
         let rtt_tracker = Arc::clone(&self.rtt_tracker);
         let dns_resolver = self.dns_resolver.clone();
         let oui_lookup = self.oui_lookup.clone();
+        let devices = Arc::clone(&self.devices);
         let parser_config = ParserConfig {
             enable_dpi: self.config.enable_dpi,
             ..Default::default()
@@ -981,14 +991,23 @@ impl App {
                             }));
                         match parse_result {
                             Ok(Some(parsed)) => {
+                                // Update connection tracker
                                 update_connection(
                                     &connections,
-                                    parsed,
+                                    parsed.clone(),
                                     &stats,
                                     &json_log_path,
                                     &rtt_tracker,
                                     dns_resolver.as_deref(),
                                 );
+
+                                // Update device discovery tracker
+                                update_device(
+                                    &devices,
+                                    parsed,
+                                    oui_lookup.clone(),
+                                );
+
                                 parsed_count += 1;
                             }
                             Ok(None) => {}
@@ -1036,6 +1055,8 @@ impl App {
         let pktap_active = Arc::clone(&self.pktap_active);
         let should_stop = Arc::clone(&self.should_stop);
         let process_detection_status = Arc::clone(&self.process_detection_status);
+        let listeners = Arc::clone(&self.listeners);
+        let service_lookup = Arc::clone(&self.service_lookup);
 
         thread::Builder::new()
             .name("process-enrichment".to_string())
@@ -1089,6 +1110,8 @@ impl App {
                 pktap_active,
                 process_detection_status,
                 process_ready_tx,
+                listeners,
+                service_lookup,
             ) {
                 error!("Process enrichment thread failed: {}", e);
             }
@@ -1105,6 +1128,8 @@ impl App {
         pktap_active: Arc<AtomicBool>,
         process_detection_status: Arc<RwLock<ProcessDetectionStatus>>,
         process_ready_tx: std::sync::mpsc::SyncSender<()>,
+        listeners: Arc<RwLock<Vec<Listener>>>,
+        service_lookup: Arc<ServiceLookup>,
     ) -> Result<()> {
         use crate::network::platform::DegradationReason;
 
@@ -1141,7 +1166,8 @@ impl App {
             "Process enrichment thread started with detection method: {}",
             process_lookup.get_detection_method()
         );
-        let mut last_refresh = Instant::now();
+        // Initialize to 10 seconds ago to trigger immediate refresh
+        let mut last_refresh = Instant::now() - Duration::from_secs(10);
 
         loop {
             if should_stop.load(Ordering::Relaxed) {
@@ -1163,6 +1189,48 @@ impl App {
                 if let Err(e) = process_lookup.refresh() {
                     debug!("Process lookup refresh failed: {}", e);
                 }
+
+                // Update listeners
+                match process_lookup.get_listeners() {
+                    Ok(mut new_listeners) => {
+                        // Enrich listeners with service names
+                        for listener in &mut new_listeners {
+                            listener.service_name = service_lookup
+                                .lookup(listener.local_addr.port(), listener.protocol)
+                                .map(|s| s.to_string());
+
+                            // Count active connections for this listener
+                            let count = connections
+                                .iter()
+                                .filter(|c| {
+                                    if c.is_historic || c.protocol != listener.protocol {
+                                        return false;
+                                    }
+                                    
+                                    // Match port
+                                    if c.local_addr.port() != listener.local_addr.port() {
+                                        return false;
+                                    }
+
+                                    // Match IP: if listener is bound to wildcard, any local IP matches.
+                                    // Otherwise, require exact IP match.
+                                    if listener.local_addr.ip().is_unspecified() {
+                                        true
+                                    } else {
+                                        c.local_addr.ip() == listener.local_addr.ip()
+                                    }
+                                })
+                                .count();
+                            listener.active_connections = count;
+                        }
+
+                        if let Ok(mut l) = listeners.write() {
+                            *l = new_listeners;
+                        }
+                    }
+                    Err(e) => debug!("Failed to get listeners: {}", e),
+                }
+
                 last_refresh = Instant::now();
             }
 
@@ -1790,7 +1858,20 @@ impl App {
         }
     }
 
-    /// Check if application is still loading
+    /// Get a snapshot of active listening sockets
+    pub fn get_listeners(&self) -> Vec<Listener> {
+        self.listeners
+            .read()
+            .expect("listeners lock poisoned")
+            .clone()
+    }
+
+    /// Get a snapshot of discovered devices on the local network
+    pub fn get_devices(&self) -> Vec<Device> {
+        self.devices.iter().map(|d| d.value().clone()).collect()
+    }
+
+    /// Check if the application is still in its initial loading state
     pub fn is_loading(&self) -> bool {
         self.is_loading.load(Ordering::Relaxed)
     }
@@ -2082,6 +2163,82 @@ fn update_connection(
 
             conn
         });
+}
+
+/// Update device discovery tracker with info from a parsed packet
+fn update_device(
+    devices: &DashMap<String, Device>,
+    parsed: ParsedPacket,
+    oui_lookup: Option<Arc<OuiLookup>>,
+) {
+    let now = SystemTime::now();
+
+    // Helper to update or create a device entry
+    let mut upsert_device = |ip: IpAddr, mac: Option<String>, is_sent: bool| {
+        // Skip multicast and broadcast IPs
+        if ip.is_multicast() || ip.is_unspecified() {
+            return;
+        }
+
+        // Special handling for IPv4 broadcast
+        if let IpAddr::V4(v4) = ip {
+            if v4.is_broadcast() || v4.octets()[3] == 255 {
+                return;
+            }
+        }
+
+        // We need at least a MAC address to identify a unique hardware device
+        let mac_addr = match mac {
+            Some(m) if !m.is_empty() && m != "00:00:00:00:00:00" && m != "ff:ff:ff:ff:ff:ff" => m,
+            _ => return,
+        };
+
+        let protocol_str = parsed.protocol.to_string();
+
+        devices
+            .entry(mac_addr.clone())
+            .and_modify(|d| {
+                d.last_seen = now;
+                d.is_online = true;
+                d.ip = ip; // IP might have changed (DHCP)
+                if is_sent {
+                    d.bytes_sent += parsed.packet_len as u64;
+                } else {
+                    d.bytes_received += parsed.packet_len as u64;
+                }
+                d.protocols.insert(protocol_str.clone());
+            })
+            .or_insert_with(|| {
+                let vendor = oui_lookup.as_ref().and_then(|oui| oui.lookup(&mac_addr).map(String::from));
+                let mut protocols = std::collections::HashSet::new();
+                protocols.insert(protocol_str);
+
+                Device {
+                    ip,
+                    mac: mac_addr,
+                    vendor,
+                    hostname: None, // Will be filled by background refresh if possible
+                    first_seen: now,
+                    last_seen: now,
+                    bytes_sent: if is_sent { parsed.packet_len as u64 } else { 0 },
+                    bytes_received: if is_sent { 0 } else { parsed.packet_len as u64 },
+                    protocols,
+                    is_online: true,
+                }
+            });
+    };
+
+    // Update for both local (source) and remote (destination) sides
+    // In our capture:
+    // - For outgoing: local_addr is source, remote_addr is destination
+    // - For incoming: local_addr is destination, remote_addr is source
+    if parsed.is_outgoing {
+        upsert_device(parsed.local_addr.ip(), parsed.local_mac.clone(), true);
+        upsert_device(parsed.remote_addr.ip(), parsed.remote_mac.clone(), false);
+    } else {
+        upsert_device(parsed.local_addr.ip(), parsed.local_mac.clone(), false);
+        upsert_device(parsed.remote_addr.ip(), parsed.remote_mac.clone(), true);
+    }
 }
 
 impl Drop for App {

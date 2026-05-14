@@ -43,11 +43,19 @@ pub fn parse(
         None
     };
 
+    let (local_mac, remote_mac) = if is_outgoing {
+        (params.src_mac.clone(), params.dst_mac.clone())
+    } else {
+        (params.dst_mac.clone(), params.src_mac.clone())
+    };
+
     Some(ParsedPacket {
         connection_key: format!("UDP:{}-UDP:{}", local_addr, remote_addr),
         protocol: Protocol::Udp,
         local_addr,
         remote_addr,
+        local_mac,
+        remote_mac,
         tcp_header: None,
         protocol_state: ProtocolState::Udp,
         is_outgoing,

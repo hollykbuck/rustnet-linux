@@ -40,11 +40,19 @@ pub fn parse(
         )
     };
 
+    let (local_mac, remote_mac) = if is_outgoing {
+        (params.src_mac.clone(), params.dst_mac.clone())
+    } else {
+        (params.dst_mac.clone(), params.src_mac.clone())
+    };
+
     Some(ParsedPacket {
         connection_key: format!("ICMP:{}-ICMP:{}", local_addr, remote_addr),
         protocol: Protocol::Icmp,
         local_addr,
         remote_addr,
+        local_mac,
+        remote_mac,
         tcp_header: None,
         protocol_state: ProtocolState::Icmp { icmp_type, icmp_id },
         is_outgoing,
@@ -89,11 +97,19 @@ pub fn parse_v6(
         )
     };
 
+    let (local_mac, remote_mac) = if is_outgoing {
+        (params.src_mac.clone(), params.dst_mac.clone())
+    } else {
+        (params.dst_mac.clone(), params.src_mac.clone())
+    };
+
     Some(ParsedPacket {
         connection_key: format!("ICMP:{}-ICMP:{}", local_addr, remote_addr),
         protocol: Protocol::Icmp,
         local_addr,
         remote_addr,
+        local_mac,
+        remote_mac,
         tcp_header: None,
         protocol_state: ProtocolState::Icmp { icmp_type, icmp_id },
         is_outgoing,
