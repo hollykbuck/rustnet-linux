@@ -27,11 +27,13 @@ pub fn draw_routes_tab(
     }
 
     // Sort routes: IPv4 first, then by destination
-    routes.sort_by(|a, b| match (a.destination.is_ipv4(), b.destination.is_ipv4()) {
-        (true, false) => std::cmp::Ordering::Less,
-        (false, true) => std::cmp::Ordering::Greater,
-        _ => a.destination.cmp(&b.destination),
-    });
+    routes.sort_by(
+        |a, b| match (a.destination.is_ipv4(), b.destination.is_ipv4()) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.destination.cmp(&b.destination),
+        },
+    );
 
     if routes.is_empty() {
         let para = Paragraph::new("No routing information available.")
@@ -104,7 +106,9 @@ pub fn draw_routes_tab(
 
     let mut state = TableState::default();
     if let Some(selected_idx) = ui_state.selected_route_index {
-        state.select(Some(selected_idx.saturating_sub(ui_state.routes_scroll_offset)));
+        state.select(Some(
+            selected_idx.saturating_sub(ui_state.routes_scroll_offset),
+        ));
     }
 
     let table = Table::new(

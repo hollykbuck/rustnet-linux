@@ -37,7 +37,7 @@ pub fn draw_services(
 }
 
 fn draw_service_modal(f: &mut Frame, listener: &Listener) {
-    use crate::ui::components::{centered_rect, Clear};
+    use crate::ui::components::{Clear, centered_rect};
     let area = centered_rect(60, 40, f.area());
     f.render_widget(Clear, area);
 
@@ -57,29 +57,47 @@ fn draw_service_modal(f: &mut Frame, listener: &Listener) {
     };
 
     add_row("Protocol", listener.protocol.to_string(), value_style);
-    add_row("Local Address", listener.local_addr.to_string(), value_style);
+    add_row(
+        "Local Address",
+        listener.local_addr.to_string(),
+        value_style,
+    );
     add_row(
         "Service Name",
-        listener.service_name.clone().unwrap_or_else(|| "unknown".to_string()),
+        listener
+            .service_name
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string()),
         fg(accent()),
     );
     add_row(
         "Process Name",
-        listener.process_name.clone().unwrap_or_else(|| "unknown".to_string()),
+        listener
+            .process_name
+            .clone()
+            .unwrap_or_else(|| "unknown".to_string()),
         fg(ok()),
     );
     add_row(
         "PID",
-        listener.pid.map(|p| p.to_string()).unwrap_or_else(|| "unknown".to_string()),
+        listener
+            .pid
+            .map(|p| p.to_string())
+            .unwrap_or_else(|| "unknown".to_string()),
         fg(muted()),
     );
     add_row(
         "Active Conns",
         listener.active_connections.to_string(),
-        if listener.active_connections > 0 { fg(ok()) } else { fg(muted()) },
+        if listener.active_connections > 0 {
+            fg(ok())
+        } else {
+            fg(muted())
+        },
     );
 
-    let table = Table::new(rows, [Constraint::Length(15), Constraint::Min(0)]).style(Style::default());
+    let table =
+        Table::new(rows, [Constraint::Length(15), Constraint::Min(0)]).style(Style::default());
     f.render_widget(table, inner);
 
     let help = Paragraph::new(" Press Esc or Enter to close ")

@@ -589,7 +589,11 @@ impl UIState {
             return;
         }
         let idx = self.selected_route_index.unwrap_or(0);
-        self.selected_route_index = Some(if idx > 0 { idx - 1 } else { count.saturating_sub(1) });
+        self.selected_route_index = Some(if idx > 0 {
+            idx - 1
+        } else {
+            count.saturating_sub(1)
+        });
     }
 
     pub fn move_route_selection_down(&mut self, count: usize) {
@@ -597,7 +601,11 @@ impl UIState {
             return;
         }
         let idx = self.selected_route_index.unwrap_or(0);
-        self.selected_route_index = Some(if idx < count.saturating_sub(1) { idx + 1 } else { 0 });
+        self.selected_route_index = Some(if idx < count.saturating_sub(1) {
+            idx + 1
+        } else {
+            0
+        });
     }
     pub fn move_device_selection_up(&mut self, devices: &[crate::network::types::Device]) {
         let idx = self.get_selected_device_index(devices).unwrap_or(0);

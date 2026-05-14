@@ -35,7 +35,7 @@ pub fn draw_devices(
 }
 
 fn draw_device_modal(f: &mut Frame, device: &Device) {
-    use crate::ui::components::{centered_rect, Clear};
+    use crate::ui::components::{Clear, centered_rect};
     let area = centered_rect(60, 50, f.area());
     f.render_widget(Clear, area);
 
@@ -66,15 +66,43 @@ fn draw_device_modal(f: &mut Frame, device: &Device) {
         device.hostname.clone().unwrap_or_else(|| "—".to_string()),
         fg(ok()),
     );
-    add_row("Status", if device.is_online { "ONLINE".to_string() } else { "OFFLINE".to_string() }, if device.is_online { fg(ok()) } else { fg(muted()) });
-    add_row("First Seen", format_system_time(device.first_seen), fg(muted()));
-    add_row("Last Seen", format_system_time(device.last_seen), fg(muted()));
+    add_row(
+        "Status",
+        if device.is_online {
+            "ONLINE".to_string()
+        } else {
+            "OFFLINE".to_string()
+        },
+        if device.is_online {
+            fg(ok())
+        } else {
+            fg(muted())
+        },
+    );
+    add_row(
+        "First Seen",
+        format_system_time(device.first_seen),
+        fg(muted()),
+    );
+    add_row(
+        "Last Seen",
+        format_system_time(device.last_seen),
+        fg(muted()),
+    );
     add_row("Total Recv", format_bytes(device.bytes_received), fg(rx()));
     add_row("Total Sent", format_bytes(device.bytes_sent), fg(tx()));
 
     if !device.open_ports.is_empty() {
-        let ports: Vec<String> = device.open_ports.iter()
-            .map(|(p, s)| if s.is_empty() { p.to_string() } else { format!("{}:{}", p, s) })
+        let ports: Vec<String> = device
+            .open_ports
+            .iter()
+            .map(|(p, s)| {
+                if s.is_empty() {
+                    p.to_string()
+                } else {
+                    format!("{}:{}", p, s)
+                }
+            })
             .collect();
         add_row("Open Ports", ports.join(", "), value_style);
     }
@@ -84,7 +112,8 @@ fn draw_device_modal(f: &mut Frame, device: &Device) {
         add_row("Discovery", details.join(", "), fg(muted()));
     }
 
-    let table = Table::new(rows, [Constraint::Length(15), Constraint::Min(0)]).style(Style::default());
+    let table =
+        Table::new(rows, [Constraint::Length(15), Constraint::Min(0)]).style(Style::default());
     f.render_widget(table, inner);
 
     let help = Paragraph::new(" Press Esc or Enter to close ")
@@ -185,9 +214,17 @@ fn draw_devices_table(
 
             let last_seen_str = format_system_time(d.last_seen);
             let first_seen_str = format_system_time(d.first_seen);
-            
-            let mut ports: Vec<String> = d.open_ports.iter()
-                .map(|(p, s)| if s.is_empty() { p.to_string() } else { format!("{}:{}", p, s) })
+
+            let mut ports: Vec<String> = d
+                .open_ports
+                .iter()
+                .map(|(p, s)| {
+                    if s.is_empty() {
+                        p.to_string()
+                    } else {
+                        format!("{}:{}", p, s)
+                    }
+                })
                 .collect();
             if ports.is_empty() {
                 ports.push("—".to_string());

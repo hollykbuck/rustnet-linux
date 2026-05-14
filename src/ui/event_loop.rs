@@ -300,8 +300,10 @@ fn handle_mouse_event(
                             // If double-clicking in grouped mode, try to toggle expansion or open modal
                             // We need to re-derive the routes and groupings to know what was clicked
                             let routes = app.get_routes();
-                            let mut groups: HashMap<String, Vec<crate::network::types::RouteEntry>> =
-                                HashMap::new();
+                            let mut groups: HashMap<
+                                String,
+                                Vec<crate::network::types::RouteEntry>,
+                            > = HashMap::new();
                             for r in routes {
                                 groups.entry(r.interface.clone()).or_default().push(r);
                             }

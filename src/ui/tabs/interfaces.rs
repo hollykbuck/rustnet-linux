@@ -133,7 +133,11 @@ pub fn draw_interface_stats(
 }
 
 fn get_status_indicator(stat: &InterfaceStats) -> (String, Style) {
-    let state = stat.operstate.as_deref().unwrap_or("unknown").to_lowercase();
+    let state = stat
+        .operstate
+        .as_deref()
+        .unwrap_or("unknown")
+        .to_lowercase();
     if state.contains("up") || state == "up" {
         ("🟢 UP".to_string(), fg(ok()))
     } else if state.contains("down") {
