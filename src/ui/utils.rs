@@ -49,3 +49,67 @@ pub fn copy_to_clipboard(text: &str, display_msg: &str, ui_state: &mut UIState, 
         }
     }
 }
+
+/// Placeholder string displayed when a value is unavailable.
+pub const NONE_PLACEHOLDER: &str = "-";
+
+/// Format rate to human readable form
+pub fn format_rate(bytes_per_second: f64) -> String {
+    const KB_PER_SEC: f64 = 1024.0;
+    const MB_PER_SEC: f64 = KB_PER_SEC * 1024.0;
+    const GB_PER_SEC: f64 = MB_PER_SEC * 1024.0;
+
+    if bytes_per_second >= GB_PER_SEC {
+        format!("{:.2} GB/s", bytes_per_second / GB_PER_SEC)
+    } else if bytes_per_second >= MB_PER_SEC {
+        format!("{:.2} MB/s", bytes_per_second / MB_PER_SEC)
+    } else if bytes_per_second >= KB_PER_SEC {
+        format!("{:.2} KB/s", bytes_per_second / KB_PER_SEC)
+    } else if bytes_per_second > 0.0 {
+        format!("{:.0} B/s", bytes_per_second)
+    } else {
+        NONE_PLACEHOLDER.to_string()
+    }
+}
+
+/// Format rate to compact form for tight spaces
+pub fn format_rate_compact(bytes_per_second: f64) -> String {
+    const KB_PER_SEC: f64 = 1024.0;
+    const MB_PER_SEC: f64 = KB_PER_SEC * 1024.0;
+    const GB_PER_SEC: f64 = MB_PER_SEC * 1024.0;
+
+    if bytes_per_second >= GB_PER_SEC {
+        format!("{:.1}G", bytes_per_second / GB_PER_SEC)
+    } else if bytes_per_second >= MB_PER_SEC {
+        format!("{:.1}M", bytes_per_second / MB_PER_SEC)
+    } else if bytes_per_second >= KB_PER_SEC {
+        format!("{:.0}K", bytes_per_second / KB_PER_SEC)
+    } else if bytes_per_second > 0.0 {
+        format!("{:.0}B", bytes_per_second)
+    } else {
+        NONE_PLACEHOLDER.to_string()
+    }
+}
+
+/// Format bytes to human readable form
+pub fn format_bytes(bytes: u64) -> String {
+    const KB: u64 = 1024;
+    const MB: u64 = KB * 1024;
+    const GB: u64 = MB * 1024;
+
+    if bytes >= GB {
+        format!("{:.2} GB", bytes as f64 / GB as f64)
+    } else if bytes >= MB {
+        format!("{:.2} MB", bytes as f64 / MB as f64)
+    } else if bytes >= KB {
+        format!("{:.2} KB", bytes as f64 / KB as f64)
+    } else {
+        format!("{} B", bytes)
+    }
+}
+
+pub fn format_system_time(time: std::time::SystemTime) -> String {
+    use chrono::{DateTime, Local};
+    let datetime: DateTime<Local> = time.into();
+    datetime.format("%H:%M:%S").to_string()
+}
