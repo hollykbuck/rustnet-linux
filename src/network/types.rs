@@ -1830,6 +1830,12 @@ pub struct Device {
     pub bytes_received: u64,
     pub protocols: std::collections::HashSet<String>,
     pub is_online: bool,
+    /// Whether this device is a known gateway
+    pub is_gateway: bool,
+    /// Open/active ports discovered: port -> service_name
+    pub open_ports: std::collections::BTreeMap<u16, String>,
+    /// Enhanced discovery details (e.g. mDNS, NetBIOS, DHCP info)
+    pub discovery_details: std::collections::HashSet<String>,
 }
 
 #[derive(Debug, Clone)]

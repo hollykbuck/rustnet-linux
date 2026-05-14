@@ -321,7 +321,18 @@ impl App {
 
     /// Get a snapshot of discovered devices on the local network
     pub fn get_devices(&self) -> Vec<Device> {
-        self.devices.iter().map(|d| d.value().clone()).collect()
+        let routes = self.get_routes();
+        let gateway_ips: std::collections::HashSet<_> =
+            routes.iter().filter_map(|r| r.gateway).collect();
+
+        self.devices
+            .iter()
+            .map(|d| {
+                let mut device = d.value().clone();
+                device.is_gateway = gateway_ips.contains(&device.ip);
+                device
+            })
+            .collect()
     }
 
     /// Sort interface statistics by captured interface first, then name
@@ -356,6 +367,19 @@ impl App {
     /// Get the current network interface name
     pub fn get_current_interface(&self) -> Option<String> {
         self.current_interface.read().unwrap().clone()
+    }
+
+    /// Get the IP address of the current interface
+    pub fn get_local_ip(&self) -> Option<std::net::IpAddr> {
+        let current = self.get_current_interface()?;
+        for iface in pnet_datalink::interfaces() {
+            if iface.name == current {
+                for ip_network in iface.ips {
+                    return Some(ip_network.ip());
+                }
+            }
+        }
+        None
     }
 
     /// Get the current process detection status (method and degradation info)

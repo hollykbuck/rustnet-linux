@@ -306,6 +306,56 @@ pub fn update_device(
                     d.bytes_received += parsed.packet_len as u64;
                 }
                 d.protocols.insert(protocol_str.clone());
+
+                // Update open ports and discovery details
+                if let Some(ref dpi) = parsed.dpi_result {
+                    let detail = match &dpi.application {
+                        ApplicationProtocol::NetBios(info) => {
+                            if let Some(name) = &info.name {
+                                format!("NetBIOS:{}", name)
+                            } else {
+                                "NetBIOS".to_string()
+                            }
+                        }
+                        ApplicationProtocol::Mdns(info) => {
+                            if let Some(name) = &info.query_name {
+                                format!("mDNS:{}", name)
+                            } else {
+                                "mDNS".to_string()
+                            }
+                        }
+                        ApplicationProtocol::Dhcp(info) => {
+                            if let Some(host) = &info.hostname {
+                                format!("DHCP:{}", host)
+                            } else {
+                                "DHCP".to_string()
+                            }
+                        }
+                        ApplicationProtocol::Dns(info) => {
+                            if let Some(name) = &info.query_name {
+                                format!("DNS:{}", name)
+                            } else {
+                                "DNS".to_string()
+                            }
+                        }
+                        _ => String::new(),
+                    };
+                    if !detail.is_empty() {
+                        d.discovery_details.insert(detail);
+                    }
+                }
+
+                // Track active ports
+                let port = if is_sent {
+                    parsed.local_addr.port()
+                } else {
+                    parsed.remote_addr.port()
+                };
+                if port > 0 && port < 32768 {
+                    // Only track "server" ports (well-known or registered)
+                    // This is a heuristic - usually client ports are high
+                    d.open_ports.entry(port).or_insert_with(|| String::new());
+                }
             })
             .or_insert_with(|| {
                 let vendor = oui_lookup
@@ -313,6 +363,55 @@ pub fn update_device(
                     .and_then(|oui| oui.lookup(&mac_addr).map(String::from));
                 let mut protocols = std::collections::HashSet::new();
                 protocols.insert(protocol_str);
+
+                let mut discovery_details = std::collections::HashSet::new();
+                let mut open_ports = std::collections::BTreeMap::new();
+
+                if let Some(ref dpi) = parsed.dpi_result {
+                    let detail = match &dpi.application {
+                        ApplicationProtocol::NetBios(info) => {
+                            if let Some(name) = &info.name {
+                                format!("NetBIOS:{}", name)
+                            } else {
+                                "NetBIOS".to_string()
+                            }
+                        }
+                        ApplicationProtocol::Mdns(info) => {
+                            if let Some(name) = &info.query_name {
+                                format!("mDNS:{}", name)
+                            } else {
+                                "mDNS".to_string()
+                            }
+                        }
+                        ApplicationProtocol::Dhcp(info) => {
+                            if let Some(host) = &info.hostname {
+                                format!("DHCP:{}", host)
+                            } else {
+                                "DHCP".to_string()
+                            }
+                        }
+                        ApplicationProtocol::Dns(info) => {
+                            if let Some(name) = &info.query_name {
+                                format!("DNS:{}", name)
+                            } else {
+                                "DNS".to_string()
+                            }
+                        }
+                        _ => String::new(),
+                    };
+                    if !detail.is_empty() {
+                        discovery_details.insert(detail);
+                    }
+                }
+
+                let port = if is_sent {
+                    parsed.local_addr.port()
+                } else {
+                    parsed.remote_addr.port()
+                };
+                if port > 0 && port < 32768 {
+                    open_ports.insert(port, String::new());
+                }
 
                 Device {
                     ip,
@@ -325,6 +424,9 @@ pub fn update_device(
                     bytes_received: if is_sent { 0 } else { parsed.packet_len as u64 },
                     protocols,
                     is_online: true,
+                    is_gateway: false,
+                    open_ports,
+                    discovery_details,
                 }
             });
     };

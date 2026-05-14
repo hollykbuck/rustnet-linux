@@ -270,6 +270,20 @@ impl DnsResolver {
         })
     }
 
+    /// Get DNS resolution statistics (pending, resolved)
+    pub fn get_stats(&self) -> (usize, usize) {
+        let mut pending = 0;
+        let mut resolved = 0;
+        for entry in self.cache.iter() {
+            match entry.state {
+                ResolutionState::Pending => pending += 1,
+                ResolutionState::Resolved => resolved += 1,
+                ResolutionState::Failed => {}
+            }
+        }
+        (pending, resolved)
+    }
+
     /// Stop the resolver
     pub fn stop(&self) {
         self.should_stop.store(true, Ordering::Relaxed);

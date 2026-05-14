@@ -21,22 +21,46 @@ pub fn draw_devices(
         .split(area);
 
     draw_devices_summary(f, app, &devices, main_chunks[0]);
-    draw_devices_table(f, ui_state, &devices, main_chunks[1], click_regions);
+    draw_devices_table(f, app, ui_state, &devices, main_chunks[1], click_regions);
 
     Ok(())
 }
 
-fn draw_devices_summary(f: &mut Frame, _app: &App, devices: &[Device], area: Rect) {
+fn draw_devices_summary(f: &mut Frame, app: &App, devices: &[Device], area: Rect) {
     let online_count = devices.iter().filter(|d| d.is_online).count();
+    let total_count = devices.len();
+    let hidden_count = 0; // Placeholder for future filtering logic
+
+    let (dns_pending, dns_resolved) = app
+        .get_dns_resolver()
+        .map(|r| r.get_stats())
+        .unwrap_or((0, 0));
+
+    let local_ip = app
+        .get_local_ip()
+        .map(|ip| ip.to_string())
+        .unwrap_or_else(|| "unknown".to_string());
 
     let summary_text = Line::from(vec![
         Span::styled(" Devices ", fg(heading())),
         Span::styled(
-            format!(" {}/{} online ", online_count, devices.len()),
+            format!(" {}/{} online ", online_count, total_count),
+            fg(primary()),
+        ),
+        if hidden_count > 0 {
+            Span::styled(format!(" ({} hidden) ", hidden_count), fg(muted()))
+        } else {
+            Span::raw(" ")
+        },
+        Span::raw(" ▏ "),
+        Span::styled(" 🔍 DNS ", fg(ok())),
+        Span::styled(
+            format!("{}/{} hosts ", dns_pending, dns_pending + dns_resolved),
             fg(primary()),
         ),
         Span::raw(" ▏ "),
-        Span::styled(" 🔍 Discovery Active ", fg(ok())),
+        Span::styled(" Local: ", fg(muted())),
+        Span::styled(local_ip, fg(accent())),
     ]);
 
     let block = Block::default()
@@ -49,6 +73,7 @@ fn draw_devices_summary(f: &mut Frame, _app: &App, devices: &[Device], area: Rec
 
 fn draw_devices_table(
     f: &mut Frame,
+    _app: &App,
     ui_state: &UIState,
     devices: &[Device],
     area: Rect,
@@ -56,16 +81,17 @@ fn draw_devices_table(
 ) {
     let header_style = fg(heading());
     let header = Row::new(vec![
-        Cell::from(" Status"),
-        Cell::from(" IP Address"),
-        Cell::from(" Hostname"),
-        Cell::from(" MAC"),
-        Cell::from(" Vendor"),
-        Cell::from(" First Seen"),
-        Cell::from(" Last Seen"),
-        Cell::from(" ↓ Recv"),
-        Cell::from(" ↑ Sent"),
-        Cell::from(" Details"),
+        Cell::from("Status ▼"),
+        Cell::from("IP Address"),
+        Cell::from("Hostname"),
+        Cell::from("MAC"),
+        Cell::from("Vendor"),
+        Cell::from("Ports"),
+        Cell::from("First"),
+        Cell::from("Last"),
+        Cell::from("↓ Recv"),
+        Cell::from("↑ Sent"),
+        Cell::from("Details"),
     ])
     .style(header_style)
     .height(1);
@@ -83,24 +109,42 @@ fn draw_devices_table(
         .map(|d| {
             let status_style = if d.is_online { fg(ok()) } else { fg(muted()) };
 
+            let ip_str = if d.is_gateway {
+                format!("{} (gateway)", d.ip)
+            } else {
+                d.ip.to_string()
+            };
+
             let last_seen_str = format_system_time(d.last_seen);
             let first_seen_str = format_system_time(d.first_seen);
-            let details = d.protocols.iter().cloned().collect::<Vec<_>>().join(" ");
+            
+            let mut ports: Vec<String> = d.open_ports.iter()
+                .map(|(p, s)| if s.is_empty() { p.to_string() } else { format!("{}:{}", p, s) })
+                .collect();
+            if ports.is_empty() {
+                ports.push("—".to_string());
+            }
+            let ports_str = ports.join(" ");
+
+            let mut details: Vec<String> = d.protocols.iter().cloned().collect();
+            details.extend(d.discovery_details.iter().cloned());
+            let details_str = details.join("  ");
 
             Row::new(vec![
                 Cell::from(Line::from(vec![
                     Span::styled(" ● ", status_style),
                     Span::raw(if d.is_online { "ONLINE" } else { "OFFLINE" }),
                 ])),
-                Cell::from(d.ip.to_string()),
+                Cell::from(ip_str),
                 Cell::from(d.hostname.as_deref().unwrap_or("—")),
                 Cell::from(d.mac.clone()),
                 Cell::from(d.vendor.as_deref().unwrap_or("—")),
+                Cell::from(ports_str),
                 Cell::from(first_seen_str),
                 Cell::from(last_seen_str),
                 Cell::from(format_bytes(d.bytes_received)),
                 Cell::from(format_bytes(d.bytes_sent)),
-                Cell::from(details),
+                Cell::from(details_str),
             ])
         })
         .collect();
@@ -114,15 +158,16 @@ fn draw_devices_table(
         rows,
         [
             Constraint::Length(10),
-            Constraint::Length(16),
+            Constraint::Length(22), // IP Address + (gateway)
             Constraint::Length(15),
             Constraint::Length(18),
             Constraint::Length(20),
-            Constraint::Length(12),
-            Constraint::Length(12),
-            Constraint::Length(12),
-            Constraint::Length(12),
-            Constraint::Min(20),
+            Constraint::Length(20), // Ports
+            Constraint::Length(10), // First
+            Constraint::Length(10), // Last
+            Constraint::Length(12), // Recv
+            Constraint::Length(12), // Sent
+            Constraint::Min(20),    // Details
         ],
     )
     .header(header)
