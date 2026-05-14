@@ -107,6 +107,15 @@ where
                 ui_state.visible_rows,
                 stats.len(),
             );
+        } else if ui_state.selected_tab == 5 {
+            let routes = app.get_routes();
+            let selected_idx = ui_state.selected_route_index.unwrap_or(0);
+            ui_state.routes_scroll_offset = compute_scroll_offset(
+                selected_idx,
+                ui_state.routes_scroll_offset,
+                ui_state.visible_rows,
+                routes.len(),
+            );
         } else {
             ui_state.ensure_valid_selection(&connections);
             let selected_idx = ui_state.get_selected_index(&connections).unwrap_or(0);
@@ -280,6 +289,10 @@ fn handle_mouse_event(
                         ui_state.set_selected_interface_by_index(&stats, idx);
                         ui_state.show_interface_modal = true;
                     }
+                    ClickAction::SelectRoute(idx) => {
+                        ui_state.selected_route_index = Some(idx);
+                        ui_state.show_route_modal = true;
+                    }
                     ClickAction::CopyField { label, value } => {
                         copy_to_clipboard(&value, &format!("{}: {}", label, value), ui_state, app);
                     }
@@ -308,6 +321,8 @@ fn handle_mouse_event(
                     listeners_sorted
                         .sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
                     ui_state.move_service_selection_up(&listeners_sorted);
+                } else if ui_state.selected_tab == 5 {
+                    ui_state.move_route_selection_up(app.get_routes().len());
                 }
             }
         }
@@ -333,6 +348,8 @@ fn handle_mouse_event(
                     listeners_sorted
                         .sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
                     ui_state.move_service_selection_down(&listeners_sorted);
+                } else if ui_state.selected_tab == 5 {
+                    ui_state.move_route_selection_down(app.get_routes().len());
                 }
             }
         }
@@ -395,7 +412,7 @@ fn handle_key_event(
         }
     } else {
         match (key.code, key.modifiers) {
-            (KeyCode::Char('/'), _) if ui_state.selected_tab == 0 => {
+            (KeyCode::Char('/'), _) if ui_state.selected_tab == 0 || ui_state.selected_tab == 5 => {
                 ui_state.enter_filter_mode();
             }
             (KeyCode::Char('q'), _) => {
@@ -425,6 +442,9 @@ fn handle_key_event(
             (KeyCode::Char('i'), _) | (KeyCode::Char('I'), _) => {
                 ui_state.selected_tab = if ui_state.selected_tab == 4 { 0 } else { 4 };
             }
+            (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
+                ui_state.selected_tab = if ui_state.selected_tab == 5 { 0 } else { 5 };
+            }
             (KeyCode::Up, _) | (KeyCode::Char('k'), _) => {
                 if ui_state.selected_tab == 1 {
                     let mut devices_sorted = devices.to_vec();
@@ -438,6 +458,8 @@ fn handle_key_event(
                 } else if ui_state.selected_tab == 4 {
                     let stats = app.get_sorted_interface_stats();
                     ui_state.move_interface_selection_up(&stats);
+                } else if ui_state.selected_tab == 5 {
+                    ui_state.move_route_selection_up(app.get_routes().len());
                 } else if ui_state.grouping_enabled {
                     ui_state.move_selection_up_grouped(grouped_rows);
                 } else {
@@ -457,6 +479,8 @@ fn handle_key_event(
                 } else if ui_state.selected_tab == 4 {
                     let stats = app.get_sorted_interface_stats();
                     ui_state.move_interface_selection_down(&stats);
+                } else if ui_state.selected_tab == 5 {
+                    ui_state.move_route_selection_down(app.get_routes().len());
                 } else if ui_state.grouping_enabled {
                     ui_state.move_selection_down_grouped(grouped_rows);
                 } else {
@@ -542,8 +566,12 @@ fn handle_key_event(
             (KeyCode::Enter, _) => {
                 if ui_state.show_interface_modal {
                     ui_state.show_interface_modal = false;
+                } else if ui_state.show_route_modal {
+                    ui_state.show_route_modal = false;
                 } else if ui_state.selected_tab == 4 {
                     ui_state.show_interface_modal = true;
+                } else if ui_state.selected_tab == 5 {
+                    ui_state.show_route_modal = true;
                 } else if ui_state.selected_tab == 0
                     && !connections.is_empty()
                     && !(ui_state.grouping_enabled && ui_state.is_group_selected())
@@ -627,6 +655,8 @@ fn handle_key_event(
             (KeyCode::Esc, _) => {
                 if ui_state.show_interface_modal {
                     ui_state.show_interface_modal = false;
+                } else if ui_state.show_route_modal {
+                    ui_state.show_route_modal = false;
                 } else if !ui_state.filter_query.is_empty() {
                     ui_state.clear_filter();
                     *needs_data_refresh = true;

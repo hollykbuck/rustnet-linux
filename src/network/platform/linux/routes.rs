@@ -36,6 +36,7 @@ impl LinuxRouteProvider {
                 ) {
                     routes.push(RouteEntry {
                         destination: IpAddr::V4(dest),
+                        prefix_len: mask_to_prefix(mask),
                         gateway: if gw.is_unspecified() {
                             None
                         } else {
@@ -45,6 +46,9 @@ impl LinuxRouteProvider {
                         interface: iface,
                         flags,
                         metric,
+                        protocol: None,
+                        scope: None,
+                        pref_src: None,
                     });
                 }
             }
@@ -59,7 +63,7 @@ impl LinuxRouteProvider {
                 }
 
                 let dest_hex = parts[0];
-                let _dest_prefix = parts[1]; // We can use this to construct mask if needed
+                let dest_prefix = u8::from_str_radix(parts[1], 16).unwrap_or(0);
                 let nexthop_hex = parts[4];
                 let metric = i32::from_str_radix(parts[5], 16).unwrap_or(0);
                 let flags = u32::from_str_radix(parts[8], 16).unwrap_or(0);
@@ -67,20 +71,21 @@ impl LinuxRouteProvider {
 
                 if let (Ok(dest), Ok(nexthop)) = (parse_hex_v6(dest_hex), parse_hex_v6(nexthop_hex))
                 {
-                    // Skip some internal/loopback routes that are very noisy if desired,
-                    // but for now let's show everything like `ip -6 route`.
                     routes.push(RouteEntry {
                         destination: IpAddr::V6(dest),
+                        prefix_len: dest_prefix,
                         gateway: if nexthop.is_unspecified() {
                             None
                         } else {
                             Some(IpAddr::V6(nexthop))
                         },
-                        // Simplified netmask for IPv6 (just destination for now)
                         netmask: IpAddr::V6(Ipv6Addr::UNSPECIFIED),
                         interface: iface,
                         flags,
                         metric,
+                        protocol: None,
+                        scope: None,
+                        pref_src: None,
                     });
                 }
             }
@@ -88,6 +93,15 @@ impl LinuxRouteProvider {
 
         Ok(routes)
     }
+}
+
+fn mask_to_prefix(mask: Ipv4Addr) -> u8 {
+    let octets = mask.octets();
+    let mut prefix = 0;
+    for &octet in &octets {
+        prefix += octet.count_ones() as u8;
+    }
+    prefix
 }
 
 fn parse_hex_v4(hex: &str) -> Result<Ipv4Addr> {

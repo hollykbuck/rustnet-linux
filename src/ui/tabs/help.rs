@@ -58,7 +58,7 @@ pub fn draw_help(f: &mut Frame, area: Rect) -> anyhow::Result<()> {
         ]),
         Line::from(vec![
             Span::styled("a ", fg(key())),
-            Span::raw("Toggle process grouping (aggregate by process)"),
+            Span::raw("Toggle grouping (Overview: by Process, Routes: by Interface)"),
         ]),
         Line::from(vec![
             Span::styled("Space ", fg(key())),
@@ -93,8 +93,12 @@ pub fn draw_help(f: &mut Frame, area: Rect) -> anyhow::Result<()> {
             Span::raw("Toggle interface statistics view"),
         ]),
         Line::from(vec![
+            Span::styled("Ctrl+R ", fg(key())),
+            Span::raw("Quick switch to Routes view"),
+        ]),
+        Line::from(vec![
             Span::styled("/ ", fg(key())),
-            Span::raw("Enter filter mode on Overview"),
+            Span::raw("Enter filter mode on Overview or Routes"),
         ]),
         Line::from(""),
         Line::from(vec![Span::styled("Tabs:", bold_fg(accent()))]),
@@ -108,7 +112,11 @@ pub fn draw_help(f: &mut Frame, area: Rect) -> anyhow::Result<()> {
         ]),
         Line::from(vec![
             Span::styled("  Interfaces ", fg(ok())),
-            Span::raw("Network interface statistics"),
+            Span::raw("Network interface statistics and metadata"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Routes ", fg(ok())),
+            Span::raw("System routing table (supports filter and grouping)"),
         ]),
         Line::from(vec![
             Span::styled("  Graph ", fg(ok())),

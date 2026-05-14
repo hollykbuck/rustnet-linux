@@ -48,6 +48,7 @@ impl InterfaceStatsProvider for FreeBSDStatsProvider {
                                     }
                                     mac_address = iface.mac.map(|m| m.to_string());
                                     flags = Some(iface.flags);
+                                    operstate = if iface.is_up() { Some("up".to_string()) } else { Some("down".to_string()) };
                                     break;
                                 }
                             }

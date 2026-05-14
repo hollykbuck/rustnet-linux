@@ -1806,11 +1806,15 @@ pub struct Listener {
 #[derive(Debug, Clone)]
 pub struct RouteEntry {
     pub destination: std::net::IpAddr,
+    pub prefix_len: u8,
     pub gateway: Option<std::net::IpAddr>,
     pub netmask: std::net::IpAddr,
     pub interface: String,
     pub flags: u32,
     pub metric: i32,
+    pub protocol: Option<String>,
+    pub scope: Option<String>,
+    pub pref_src: Option<std::net::IpAddr>,
 }
 
 /// Represents a discovered device on the local network

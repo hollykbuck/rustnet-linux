@@ -27,12 +27,15 @@ pub struct UIState {
     pub selected_device_mac: Option<String>,
     pub selected_interface: Option<String>,
     pub show_interface_modal: bool,
+    pub selected_route_index: Option<usize>,
+    pub show_route_modal: bool,
     pub selected_group: Option<String>,
     pub scroll_offset: usize,
     pub grouped_scroll_offset: usize,
     pub services_scroll_offset: usize,
     pub devices_scroll_offset: usize,
     pub interfaces_scroll_offset: usize,
+    pub routes_scroll_offset: usize,
     pub visible_rows: usize,
     pub show_help: bool,
     pub show_port_numbers: bool,
@@ -155,12 +158,15 @@ impl Default for UIState {
             selected_device_mac: None,
             selected_interface: None,
             show_interface_modal: false,
+            selected_route_index: None,
+            show_route_modal: false,
             selected_group: None,
             scroll_offset: 0,
             grouped_scroll_offset: 0,
             services_scroll_offset: 0,
             devices_scroll_offset: 0,
             interfaces_scroll_offset: 0,
+            routes_scroll_offset: 0,
             visible_rows: 20,
             show_help: false,
             show_port_numbers: false,
@@ -196,6 +202,7 @@ pub enum ClickAction {
     SelectService(usize),
     SelectDevice(usize),
     SelectInterface(usize),
+    SelectRoute(usize),
     CopyField { label: String, value: String },
 }
 
@@ -315,7 +322,7 @@ pub fn draw(
             )?,
         },
         4 => draw_interface_stats(f, app, ui_state, content_area, click_regions)?,
-        5 => draw_routes_tab(f, app, content_area)?,
+        5 => draw_routes_tab(f, app, ui_state, content_area, click_regions)?,
         6 => draw_graph_tab(f, app, connections, content_area)?,
         7 => draw_help(f, content_area)?,
         _ => {}
@@ -573,6 +580,22 @@ impl UIState {
                 0
             },
         );
+    }
+
+    pub fn move_route_selection_up(&mut self, count: usize) {
+        if count == 0 {
+            return;
+        }
+        let idx = self.selected_route_index.unwrap_or(0);
+        self.selected_route_index = Some(if idx > 0 { idx - 1 } else { count.saturating_sub(1) });
+    }
+
+    pub fn move_route_selection_down(&mut self, count: usize) {
+        if count == 0 {
+            return;
+        }
+        let idx = self.selected_route_index.unwrap_or(0);
+        self.selected_route_index = Some(if idx < count.saturating_sub(1) { idx + 1 } else { 0 });
     }
     pub fn move_device_selection_up(&mut self, devices: &[crate::network::types::Device]) {
         let idx = self.get_selected_device_index(devices).unwrap_or(0);

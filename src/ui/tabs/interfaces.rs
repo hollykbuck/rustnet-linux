@@ -1,4 +1,5 @@
 use crate::app::App;
+use crate::network::interface_stats::InterfaceStats;
 use crate::ui::*;
 use ratatui::widgets::{Cell, Row, Table, TableState};
 
@@ -45,8 +46,11 @@ pub fn draw_interface_stats(
             Cell::from(Line::from(Span::styled(s, style)).right_aligned())
         };
 
+        let (status_icon, status_style) = get_status_indicator(stat);
+
         rows.push(Row::new(vec![
             Cell::from(stat.interface_name.clone()),
+            Cell::from(Span::styled(status_icon, status_style)),
             Cell::from(
                 stat.description
                     .clone()
@@ -81,6 +85,7 @@ pub fn draw_interface_stats(
         rows,
         [
             Constraint::Length(14),
+            Constraint::Length(10),
             Constraint::Length(15),
             Constraint::Length(12),
             Constraint::Length(12),
@@ -97,6 +102,7 @@ pub fn draw_interface_stats(
         let right = |s: &str| Cell::from(Line::from(s.to_string()).right_aligned());
         Row::new(vec![
             Cell::from("Interface"),
+            Cell::from("Status"),
             Cell::from("Type"),
             right("RX Rate"),
             right("TX Rate"),
@@ -126,6 +132,17 @@ pub fn draw_interface_stats(
     Ok(())
 }
 
+fn get_status_indicator(stat: &InterfaceStats) -> (String, Style) {
+    let state = stat.operstate.as_deref().unwrap_or("unknown").to_lowercase();
+    if state.contains("up") || state == "up" {
+        ("🟢 UP".to_string(), fg(ok()))
+    } else if state.contains("down") {
+        ("🔴 DOWN".to_string(), fg(err()))
+    } else {
+        ("⚪ UNKNOWN".to_string(), fg(muted()))
+    }
+}
+
 fn draw_interface_modal(
     f: &mut Frame,
     stat: &crate::network::interface_stats::InterfaceStats,
@@ -143,9 +160,15 @@ fn draw_interface_modal(
     let label_style = fg(label());
     let value_style = fg(primary());
 
+    let (status_text, status_style) = get_status_indicator(stat);
+
     rows.push(Row::new(vec![
         Cell::from(Span::styled("Name:", label_style)),
         Cell::from(Span::styled(stat.interface_name.clone(), value_style)),
+    ]));
+    rows.push(Row::new(vec![
+        Cell::from(Span::styled("Status:", label_style)),
+        Cell::from(Span::styled(status_text, status_style)),
     ]));
     rows.push(Row::new(vec![
         Cell::from(Span::styled("Type:", label_style)),
@@ -199,7 +222,7 @@ fn draw_interface_modal(
 
     if let Some(state) = &stat.operstate {
         rows.push(Row::new(vec![
-            Cell::from(Span::styled("Status:", label_style)),
+            Cell::from(Span::styled("Status Info:", label_style)),
             Cell::from(Span::styled(state.clone(), value_style)),
         ]));
     }
