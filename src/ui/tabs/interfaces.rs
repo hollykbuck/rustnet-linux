@@ -28,8 +28,8 @@ pub fn draw_interface_stats(f: &mut Frame, app: &App, area: Rect) -> anyhow::Res
 
     let mut rows = Vec::new();
     for stat in &stats {
-        let error_style = if stat.rx_errors > 0 || stat.tx_errors > 0 { theme::fg(theme::err()) } else { theme::fg(theme::ok()) };
-        let drop_style = if stat.rx_dropped > 0 || stat.tx_dropped > 0 { theme::fg(theme::warn()) } else { theme::fg(theme::ok()) };
+        let error_style = if stat.rx_errors > 0 || stat.tx_errors > 0 { fg(err()) } else { fg(ok()) };
+        let drop_style = if stat.rx_dropped > 0 || stat.tx_dropped > 0 { fg(warn()) } else { fg(ok()) };
 
         let rx_rate_str = if let Some(rate) = rates.get(&stat.interface_name) { format!("{}/s", format_bytes(rate.rx_bytes_per_sec)) } else { "---".to_string() };
         let tx_rate_str = if let Some(rate) = rates.get(&stat.interface_name) { format!("{}/s", format_bytes(rate.tx_bytes_per_sec)) } else { "---".to_string() };
@@ -68,7 +68,7 @@ pub fn draw_interface_stats(f: &mut Frame, app: &App, area: Rect) -> anyhow::Res
             right("TX Err"), right("RX Drop"), right("TX Drop"),
             right("Collisions"),
         ])
-        .style(theme::fg(theme::heading()))
+        .style(fg(heading()))
     })
     .block(panel_block(" Interface Statistics (Press 'i' to toggle) "))
     .style(Style::default());

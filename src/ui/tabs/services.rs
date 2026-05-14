@@ -61,7 +61,7 @@ fn draw_services_summary(f: &mut Frame, listeners: &[Listener], area: Rect) {
     for (addr, count) in addr_vec.iter().take(3) {
         let bar_len = (bind_inner.width as usize).saturating_sub(15).min(*count * 2);
         bind_lines.push(Line::from(vec![
-            Span::styled(format!("{:<10} ", addr), theme::fg(theme::muted())),
+            Span::styled(format!("{:<10} ", addr), fg(muted())),
             Span::styled("█".repeat(bar_len), theme::primary()),
             Span::raw(format!(" {}", count)),
         ]));
@@ -79,22 +79,22 @@ fn draw_services_summary(f: &mut Frame, listeners: &[Listener], area: Rect) {
 
     let exposure_lines = vec![
         Line::from(vec![
-            Span::styled(" Exposure ", theme::fg(theme::muted())),
+            Span::styled(" Exposure ", fg(muted())),
             if exposure_pct > 50.0 {
-                Span::styled("High", theme::fg(theme::err()))
+                Span::styled("High", fg(err()))
             } else if exposure_pct > 20.0 {
-                Span::styled("Medium", theme::fg(theme::warn()))
+                Span::styled("Medium", fg(warn()))
             } else {
-                Span::styled("Low", theme::fg(theme::ok()))
+                Span::styled("Low", fg(ok()))
             },
             Span::raw(format!(" ({:.0}%)", exposure_pct)),
         ]),
         Line::from(vec![
-            Span::styled(" ● ", theme::fg(theme::err())),
+            Span::styled(" ● ", fg(err())),
             Span::raw(format!("{} network-facing", network_facing)),
         ]),
         Line::from(vec![
-            Span::styled(" ● ", theme::fg(theme::ok())),
+            Span::styled(" ● ", fg(ok())),
             Span::raw(format!("{} localhost only", localhost_only)),
         ]),
     ];
@@ -114,7 +114,7 @@ fn draw_services_summary(f: &mut Frame, listeners: &[Listener], area: Rect) {
             Span::raw("total services"),
         ]),
         Line::from(vec![
-            Span::styled(" ● ", theme::fg(theme::ok())),
+            Span::styled(" ● ", fg(ok())),
             Span::raw(format!("{} active", active_services)),
             Span::raw(format!("  ○ {} silent", listeners.len().saturating_sub(active_services))),
         ]),
@@ -133,7 +133,7 @@ fn draw_listeners_table(
     area: Rect,
     click_regions: &mut ClickableRegions,
 ) {
-    let header_style = theme::fg(theme::heading());
+    let header_style = fg(heading());
     let header = Row::new(vec![
         Cell::from(" Protocol"),
         Cell::from(" Local Address"),
@@ -156,9 +156,9 @@ fn draw_listeners_table(
         .iter()
         .map(|l| {
             let (proto_icon, icon_color) = match l.protocol {
-                Protocol::Tcp => ("🔑 ", theme::fg(Color::Yellow)),
-                Protocol::Udp => ("🔗 ", theme::fg(Color::Cyan)),
-                _ => ("  ", theme::fg(Color::Reset)),
+                Protocol::Tcp => ("🔑 ", fg(Color::Yellow)),
+                Protocol::Udp => ("🔗 ", fg(Color::Cyan)),
+                _ => ("  ", fg(Color::Reset)),
             };
 
             let proto_color = match l.protocol {
@@ -168,15 +168,15 @@ fn draw_listeners_table(
             };
 
             let active_style = if l.active_connections > 0 {
-                theme::fg(theme::ok())
+                fg(ok())
             } else {
-                theme::fg(theme::muted())
+                fg(muted())
             };
 
             Row::new(vec![
                 Cell::from(Line::from(vec![
                     Span::styled(proto_icon, icon_color),
-                    Span::styled(l.protocol.to_string(), theme::fg(proto_color)),
+                    Span::styled(l.protocol.to_string(), fg(proto_color)),
                 ])),
                 Cell::from(l.local_addr.to_string()),
                 Cell::from(l.service_name.as_deref().unwrap_or("unknown")),

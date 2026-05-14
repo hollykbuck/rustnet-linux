@@ -1,5 +1,5 @@
 use ratatui::prelude::*;
-use ratatui::widgets::{Chart, Dataset, GraphType, Sparkline, Paragraph, Table, Row, Cell};
+use ratatui::widgets::{Chart, Dataset, GraphType, Sparkline, Paragraph, Table, Row, Cell, Axis};
 use crate::app::App;
 use crate::network::types::{Connection, Protocol, ProtocolState, TcpState, AppProtocolDistribution, TrafficHistory};
 use crate::ui::theme::theme;
@@ -61,7 +61,7 @@ fn draw_traffic_chart(f: &mut Frame, history: &TrafficHistory, area: Rect) {
     f.render_widget(block, area);
 
     if !history.has_enough_data() {
-        let placeholder = Paragraph::new("Collecting data...").style(theme::fg(theme::muted()));
+        let placeholder = Paragraph::new("Collecting data...").style(fg(muted()));
         f.render_widget(placeholder, inner);
         return;
     }
@@ -74,9 +74,9 @@ fn draw_traffic_chart(f: &mut Frame, history: &TrafficHistory, area: Rect) {
     let legend_area = layout[1];
 
     let legend = Paragraph::new(Line::from(vec![
-        Span::styled("▬ RX (incoming) ↓", theme::fg(theme::rx())),
+        Span::styled("▬ RX (incoming) ↓", fg(rx())),
         Span::raw("   "),
-        Span::styled("▬ TX (outgoing) ↑", theme::fg(theme::tx())),
+        Span::styled("▬ TX (outgoing) ↑", fg(tx())),
     ]));
     f.render_widget(legend, legend_area);
 
@@ -84,13 +84,13 @@ fn draw_traffic_chart(f: &mut Frame, history: &TrafficHistory, area: Rect) {
     let max_rate = rx_data.iter().chain(tx_data.iter()).map(|(_, y)| *y).fold(0.0f64, |a, b| a.max(b)).max(1024.0);
 
     let datasets = vec![
-        Dataset::default().marker(symbols::Marker::Braille).graph_type(GraphType::Line).style(theme::fg(theme::rx())).data(&rx_data),
-        Dataset::default().marker(symbols::Marker::Braille).graph_type(GraphType::Line).style(theme::fg(theme::tx())).data(&tx_data),
+        Dataset::default().marker(symbols::Marker::Braille).graph_type(GraphType::Line).style(fg(rx())).data(&rx_data),
+        Dataset::default().marker(symbols::Marker::Braille).graph_type(GraphType::Line).style(fg(tx())).data(&tx_data),
     ];
 
     let chart = Chart::new(datasets)
-        .x_axis(Axis::default().title("Time").style(theme::fg(theme::muted())).bounds([-60.0, 0.0]).labels(vec![Line::from("-60s"), Line::from("-30s"), Line::from("now")]))
-        .y_axis(Axis::default().title("Rate").style(theme::fg(theme::muted())).bounds([0.0, max_rate]).labels(vec![Line::from("0"), Line::from(format_rate_compact(max_rate / 2.0)), Line::from(format_rate_compact(max_rate))]));
+        .x_axis(Axis::default().title("Time").style(fg(muted())).bounds([-60.0, 0.0]).labels(vec![Line::from("-60s"), Line::from("-30s"), Line::from("now")]))
+        .y_axis(Axis::default().title("Rate").style(fg(muted())).bounds([0.0, max_rate]).labels(vec![Line::from("0"), Line::from(format_rate_compact(max_rate / 2.0)), Line::from(format_rate_compact(max_rate))]));
 
     f.render_widget(chart, chart_area);
 }
@@ -101,7 +101,7 @@ fn draw_connections_sparkline(f: &mut Frame, history: &TrafficHistory, area: Rec
     f.render_widget(block, area);
 
     if !history.has_enough_data() {
-        let placeholder = Paragraph::new("Collecting...").style(theme::fg(theme::muted()));
+        let placeholder = Paragraph::new("Collecting...").style(fg(muted()));
         f.render_widget(placeholder, inner);
         return;
     }
@@ -113,7 +113,7 @@ fn draw_connections_sparkline(f: &mut Frame, history: &TrafficHistory, area: Rec
 
     let width = inner.width as usize;
     let conn_data = history.get_connection_sparkline_data(width);
-    let sparkline = Sparkline::default().data(&conn_data).style(theme::fg(theme::accent()));
+    let sparkline = Sparkline::default().data(&conn_data).style(fg(accent()));
     f.render_widget(sparkline, chunks[0]);
 
     let current_count = conn_data.last().copied().unwrap_or(0);
@@ -148,15 +148,15 @@ fn draw_app_distribution(f: &mut Frame, connections: &[Connection], area: Rect) 
             _ => theme::proto_other(),
         };
         lines.push(Line::from(vec![
-            Span::styled(format!("{:<width$}", label, width = LABEL_WIDTH), theme::fg(color)),
+            Span::styled(format!("{:<width$}", label, width = LABEL_WIDTH), fg(color)),
             Span::raw(" "),
-            Span::styled(bar, theme::fg(color)),
+            Span::styled(bar, fg(color)),
             Span::raw(format!(" {:>5.1}%", pct)),
         ]));
     }
 
     if lines.is_empty() {
-        lines.push(Line::from(Span::styled("No connections", theme::fg(theme::muted()))));
+        lines.push(Line::from(Span::styled("No connections", fg(muted()))));
     }
     f.render_widget(Paragraph::new(lines), inner);
 }
@@ -178,15 +178,15 @@ fn draw_top_processes(f: &mut Frame, connections: &[Connection], area: Rect) {
 
     let rows: Vec<Row> = sorted.into_iter().take(5).map(|(name, rate)| {
         let display_name = if name.len() > 20 { format!("{}...", &name[..17]) } else { name };
-        Row::new(vec![Cell::from(display_name), Cell::from(Line::from(format_rate(rate)).right_aligned()).style(theme::fg(theme::accent()))])
+        Row::new(vec![Cell::from(display_name), Cell::from(Line::from(format_rate(rate)).right_aligned()).style(fg(accent()))])
     }).collect();
 
     if rows.is_empty() {
-        f.render_widget(Paragraph::new("No active processes").style(theme::fg(theme::muted())), inner);
+        f.render_widget(Paragraph::new("No active processes").style(fg(muted())), inner);
         return;
     }
 
-    let table = Table::new(rows, [Constraint::Min(0), Constraint::Length(12)]).header(Row::new(vec![Cell::from("Process"), Cell::from(Line::from("Rate").right_aligned())]).style(theme::fg(theme::heading())));
+    let table = Table::new(rows, [Constraint::Min(0), Constraint::Length(12)]).header(Row::new(vec![Cell::from("Process"), Cell::from(Line::from("Rate").right_aligned())]).style(fg(heading())));
     f.render_widget(table, inner);
 }
 
@@ -196,7 +196,7 @@ fn draw_health_chart(f: &mut Frame, history: &TrafficHistory, area: Rect) {
     f.render_widget(block, area);
 
     if !history.has_enough_data() {
-        f.render_widget(Paragraph::new("Collecting data...").style(theme::fg(theme::muted())), inner);
+        f.render_widget(Paragraph::new("Collecting data...").style(fg(muted())), inner);
         return;
     }
 
@@ -216,18 +216,18 @@ fn draw_health_chart(f: &mut Frame, history: &TrafficHistory, area: Rect) {
         let filled = (rtt_pct * bar_width as f64) as usize;
         let empty = bar_width.saturating_sub(filled);
         let color = if rtt < 50.0 { theme::ok() } else if rtt < 150.0 { theme::warn() } else { theme::err() };
-        Line::from(vec![Span::styled("  RTT  ", Style::default().add_modifier(Modifier::BOLD)), Span::styled("█".repeat(filled), theme::fg(color)), Span::styled("░".repeat(empty), theme::fg(theme::muted())), Span::styled(format!(" {:>6.1}ms", rtt), theme::fg(color))])
+        Line::from(vec![Span::styled("  RTT  ", Style::default().add_modifier(Modifier::BOLD)), Span::styled("█".repeat(filled), fg(color)), Span::styled("░".repeat(empty), fg(muted())), Span::styled(format!(" {:>6.1}ms", rtt), fg(color))])
     } else {
-        Line::from(vec![Span::styled("  RTT  ", Style::default().add_modifier(Modifier::BOLD)), Span::styled("░".repeat(bar_width), theme::fg(theme::muted())), Span::styled("    --  ", theme::fg(theme::muted()))])
+        Line::from(vec![Span::styled("  RTT  ", Style::default().add_modifier(Modifier::BOLD)), Span::styled("░".repeat(bar_width), fg(muted())), Span::styled("    --  ", fg(muted()))])
     };
 
     let loss_pct = (current_loss / LOSS_MAX).min(1.0);
     let filled = (loss_pct * bar_width as f64) as usize;
     let empty = bar_width.saturating_sub(filled);
     let loss_color = if current_loss < 1.0 { theme::ok() } else if current_loss < 5.0 { theme::warn() } else { theme::err() };
-    let loss_line = Line::from(vec![Span::styled("  Loss ", Style::default().add_modifier(Modifier::BOLD)), Span::styled("█".repeat(filled.max(if current_loss > 0.0 { 1 } else { 0 })), theme::fg(loss_color)), Span::styled("░".repeat(empty.min(bar_width)), theme::fg(theme::muted())), Span::styled(format!(" {:>6.2}%", current_loss), theme::fg(loss_color))]);
+    let loss_line = Line::from(vec![Span::styled("  Loss ", Style::default().add_modifier(Modifier::BOLD)), Span::styled("█".repeat(filled.max(if current_loss > 0.0 { 1 } else { 0 })), theme::fg(loss_color)), Span::styled("░".repeat(empty.min(bar_width)), fg(muted())), Span::styled(format!(" {:>6.2}%", current_loss), theme::fg(loss_color))]);
 
-    let avg_line = Line::from(vec![Span::styled("  avg: ", theme::fg(theme::muted())), Span::styled(avg_rtt.map(|r| format!("{:.0}ms", r)).unwrap_or_else(|| "--".to_string()), theme::fg(theme::muted())), Span::styled(" / ", theme::fg(theme::muted())), Span::styled(format!("{:.2}%", avg_loss), theme::fg(theme::muted()))]);
+    let avg_line = Line::from(vec![Span::styled("  avg: ", fg(muted())), Span::styled(avg_rtt.map(|r| format!("{:.0}ms", r)).unwrap_or_else(|| "--".to_string()), fg(muted())), Span::styled(" / ", fg(muted())), Span::styled(format!("{:.2}%", avg_loss), fg(muted()))]);
 
     f.render_widget(Paragraph::new(vec![rtt_line, loss_line, avg_line]), inner);
 }
@@ -247,9 +247,9 @@ fn draw_tcp_counters(f: &mut Frame, app: &App, area: Rect) {
     let fast_color = if fast_retransmits == 0 { theme::ok() } else if fast_retransmits < 50 { theme::warn() } else { theme::err() };
 
     let lines = vec![
-        Line::from(vec![Span::styled("  Retransmits  ", Style::default().add_modifier(Modifier::BOLD)), Span::styled(format!("{:>8}", retransmits), theme::fg(retrans_color))]),
-        Line::from(vec![Span::styled("  Out of Order ", Style::default().add_modifier(Modifier::BOLD)), Span::styled(format!("{:>8}", out_of_order), theme::fg(ooo_color))]),
-        Line::from(vec![Span::styled("  Fast Retrans ", Style::default().add_modifier(Modifier::BOLD)), Span::styled(format!("{:>8}", fast_retransmits), theme::fg(fast_color))]),
+        Line::from(vec![Span::styled("  Retransmits  ", Style::default().add_modifier(Modifier::BOLD)), Span::styled(format!("{:>8}", retransmits), fg(retrans_color))]),
+        Line::from(vec![Span::styled("  Out of Order ", Style::default().add_modifier(Modifier::BOLD)), Span::styled(format!("{:>8}", out_of_order), fg(ooo_color))]),
+        Line::from(vec![Span::styled("  Fast Retrans ", Style::default().add_modifier(Modifier::BOLD)), Span::styled(format!("{:>8}", fast_retransmits), fg(fast_color))]),
     ];
     f.render_widget(Paragraph::new(lines), inner);
 }
@@ -283,7 +283,7 @@ fn draw_tcp_states(f: &mut Frame, connections: &[Connection], area: Rect) {
     f.render_widget(block, area);
 
     if states.is_empty() {
-        f.render_widget(Paragraph::new("No TCP connections").style(theme::fg(theme::muted())), inner);
+        f.render_widget(Paragraph::new("No TCP connections").style(fg(muted())), inner);
         return;
     }
 
@@ -301,7 +301,7 @@ fn draw_tcp_states(f: &mut Frame, connections: &[Connection], area: Rect) {
             "CLOSED" => theme::tcp_closed(),
             _ => Color::Reset,
         };
-        Line::from(vec![Span::styled(format!("{:>10} ", name), theme::fg(color)), Span::styled(bar, theme::fg(color)), Span::raw(format!(" {:>4}", count))])
+        Line::from(vec![Span::styled(format!("{:>10} ", name), fg(color)), Span::styled(bar, fg(color)), Span::raw(format!(" {:>4}", count))])
     }).collect();
 
     f.render_widget(Paragraph::new(lines), inner);

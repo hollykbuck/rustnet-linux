@@ -34,18 +34,18 @@ fn draw_devices_summary(f: &mut Frame, _app: &App, devices: &[Device], area: Rec
     let online_count = devices.iter().filter(|d| d.is_online).count();
 
     let summary_text = Line::from(vec![
-        Span::styled(" Devices ", theme::fg(theme::heading())),
+        Span::styled(" Devices ", fg(heading())),
         Span::styled(
             format!(" {}/{} online ", online_count, devices.len()),
             theme::primary(),
         ),
         Span::raw(" ▏ "),
-        Span::styled(" 🔍 Discovery Active ", theme::fg(theme::ok())),
+        Span::styled(" 🔍 Discovery Active ", fg(ok())),
     ]);
 
     let block = Block::default()
         .borders(Borders::ALL)
-        .border_style(theme::fg(theme::muted()))
+        .border_style(fg(muted()))
         .title(summary_text);
 
     f.render_widget(block, area);
@@ -58,7 +58,7 @@ fn draw_devices_table(
     area: Rect,
     click_regions: &mut ClickableRegions,
 ) {
-    let header_style = theme::fg(theme::heading());
+    let header_style = fg(heading());
     let header = Row::new(vec![
         Cell::from(" Status"),
         Cell::from(" IP Address"),
@@ -86,9 +86,9 @@ fn draw_devices_table(
         .iter()
         .map(|d| {
             let status_style = if d.is_online {
-                theme::fg(theme::ok())
+                fg(ok())
             } else {
-                theme::fg(theme::muted())
+                fg(muted())
             };
 
             let last_seen_str = format_system_time(d.last_seen);
