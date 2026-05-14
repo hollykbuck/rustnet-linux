@@ -12,6 +12,7 @@ pub mod types;
 pub mod logging;
 pub mod state;
 pub mod threads;
+pub mod sandbox;
 
 pub use config::Config;
 pub use types::{AppStats, ProcessDetectionStatus, SandboxInfo};

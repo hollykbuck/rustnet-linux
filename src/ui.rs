@@ -30,6 +30,11 @@ use std::time::SystemTime;
 
 pub type Terminal<B> = RatatuiTerminal<B>;
 
+pub mod event_loop;
+pub mod utils;
+
+pub use event_loop::run_ui_loop;
+
 /// Placeholder string displayed when a value is unavailable.
 const NONE_PLACEHOLDER: &str = "-";
 

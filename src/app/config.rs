@@ -29,6 +29,74 @@ pub struct Config {
     pub disable_geoip: bool,
 }
 
+impl Config {
+    /// Create configuration from CLI argument matches
+    pub fn from_matches(matches: &clap::ArgMatches) -> Self {
+        let mut config = Self::default();
+
+        if let Some(interface) = matches.get_one::<String>("interface") {
+            config.interface = Some(interface.to_string());
+        }
+
+        if matches.get_flag("no-localhost") {
+            config.filter_localhost = true;
+        }
+
+        if matches.get_flag("show-localhost") {
+            config.filter_localhost = false;
+        }
+
+        if let Some(interval) = matches.get_one::<u64>("refresh-interval") {
+            config.refresh_interval = *interval;
+        }
+
+        if matches.get_flag("no-dpi") {
+            config.enable_dpi = false;
+        }
+
+        if let Some(json_log_path) = matches.get_one::<String>("json-log") {
+            config.json_log_file = Some(json_log_path.to_string());
+        }
+
+        if let Some(pcap_path) = matches.get_one::<String>("pcap-export") {
+            config.pcap_export_file = Some(pcap_path.to_string());
+        }
+
+        if let Some(bpf_filter) = matches.get_one::<String>("bpf-filter") {
+            let filter = bpf_filter.trim();
+            if !filter.is_empty() {
+                config.bpf_filter = Some(filter.to_string());
+            }
+        }
+
+        if matches.get_flag("no-resolve-dns") {
+            config.resolve_dns = false;
+        }
+
+        if matches.get_flag("show-ptr-lookups") {
+            config.show_ptr_lookups = true;
+        }
+
+        if matches.get_flag("no-geoip") {
+            config.disable_geoip = true;
+        }
+
+        if let Some(country_path) = matches.get_one::<String>("geoip-country") {
+            config.geoip_country_path = Some(country_path.to_string());
+        }
+
+        if let Some(asn_path) = matches.get_one::<String>("geoip-asn") {
+            config.geoip_asn_path = Some(asn_path.to_string());
+        }
+
+        if let Some(city_path) = matches.get_one::<String>("geoip-city") {
+            config.geoip_city_path = Some(city_path.to_string());
+        }
+
+        config
+    }
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
