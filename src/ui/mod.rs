@@ -916,7 +916,10 @@ mod tests {
         // Now if the list is re-ordered (e.g. "lo" comes first)
         let reordered_stats = mock_stats(vec!["lo", "eth0", "wlan0"]);
         // It should still correctly find "lo" at index 0
-        assert_eq!(ui_state.get_selected_interface_index(&reordered_stats), Some(0));
+        assert_eq!(
+            ui_state.get_selected_interface_index(&reordered_stats),
+            Some(0)
+        );
     }
 
     #[test]

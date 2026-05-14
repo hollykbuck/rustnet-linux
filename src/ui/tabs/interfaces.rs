@@ -47,7 +47,11 @@ pub fn draw_interface_stats(
 
         rows.push(Row::new(vec![
             Cell::from(stat.interface_name.clone()),
-            Cell::from(stat.description.clone().unwrap_or_else(|| "---".to_string())),
+            Cell::from(
+                stat.description
+                    .clone()
+                    .unwrap_or_else(|| "---".to_string()),
+            ),
             right(rx_rate_str),
             right(tx_rate_str),
             right(format!("{}", stat.rx_packets)),
@@ -68,7 +72,9 @@ pub fn draw_interface_stats(
 
     let mut state = TableState::default();
     if let Some(selected_idx) = ui_state.get_selected_interface_index(&stats) {
-        state.select(Some(selected_idx.saturating_sub(ui_state.interfaces_scroll_offset)));
+        state.select(Some(
+            selected_idx.saturating_sub(ui_state.interfaces_scroll_offset),
+        ));
     }
 
     let table = Table::new(
@@ -110,12 +116,11 @@ pub fn draw_interface_stats(
 
     f.render_stateful_widget(table, area, &mut state);
 
-    if ui_state.show_interface_modal {
-        if let Some(idx) = ui_state.get_selected_interface_index(&stats) {
-            if let Some(stat) = stats.get(idx) {
-                draw_interface_modal(f, stat, rates.get(&stat.interface_name));
-            }
-        }
+    if ui_state.show_interface_modal
+        && let Some(idx) = ui_state.get_selected_interface_index(&stats)
+        && let Some(stat) = stats.get(idx)
+    {
+        draw_interface_modal(f, stat, rates.get(&stat.interface_name));
     }
 
     Ok(())
@@ -145,7 +150,9 @@ fn draw_interface_modal(
     rows.push(Row::new(vec![
         Cell::from(Span::styled("Type:", label_style)),
         Cell::from(Span::styled(
-            stat.description.clone().unwrap_or_else(|| "Unknown".to_string()),
+            stat.description
+                .clone()
+                .unwrap_or_else(|| "Unknown".to_string()),
             value_style,
         )),
     ]));
@@ -158,7 +165,12 @@ fn draw_interface_modal(
     }
 
     if !stat.ipv4.is_empty() {
-        let ips = stat.ipv4.iter().map(|ip| ip.to_string()).collect::<Vec<_>>().join(", ");
+        let ips = stat
+            .ipv4
+            .iter()
+            .map(|ip| ip.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
         rows.push(Row::new(vec![
             Cell::from(Span::styled("IPv4:", label_style)),
             Cell::from(Span::styled(ips, value_style)),
@@ -166,7 +178,12 @@ fn draw_interface_modal(
     }
 
     if !stat.ipv6.is_empty() {
-        let ips = stat.ipv6.iter().map(|ip| ip.to_string()).collect::<Vec<_>>().join(", ");
+        let ips = stat
+            .ipv6
+            .iter()
+            .map(|ip| ip.to_string())
+            .collect::<Vec<_>>()
+            .join(", ");
         rows.push(Row::new(vec![
             Cell::from(Span::styled("IPv6:", label_style)),
             Cell::from(Span::styled(ips, value_style)),
@@ -214,11 +231,17 @@ fn draw_interface_modal(
     if let Some(r) = rates {
         rows.push(Row::new(vec![
             Cell::from(Span::styled("RX Rate:", label_style)),
-            Cell::from(Span::styled(format!("{}/s", format_bytes(r.rx_bytes_per_sec)), value_style)),
+            Cell::from(Span::styled(
+                format!("{}/s", format_bytes(r.rx_bytes_per_sec)),
+                value_style,
+            )),
         ]));
         rows.push(Row::new(vec![
             Cell::from(Span::styled("TX Rate:", label_style)),
-            Cell::from(Span::styled(format!("{}/s", format_bytes(r.tx_bytes_per_sec)), value_style)),
+            Cell::from(Span::styled(
+                format!("{}/s", format_bytes(r.tx_bytes_per_sec)),
+                value_style,
+            )),
         ]));
     }
 
@@ -251,7 +274,8 @@ fn draw_interface_modal(
         Cell::from(Span::styled(stat.collisions.to_string(), value_style)),
     ]));
 
-    let table = Table::new(rows, [Constraint::Length(15), Constraint::Min(0)]).style(Style::default());
+    let table =
+        Table::new(rows, [Constraint::Length(15), Constraint::Min(0)]).style(Style::default());
 
     f.render_widget(table, inner);
 
