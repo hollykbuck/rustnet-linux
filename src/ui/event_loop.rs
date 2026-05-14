@@ -98,6 +98,15 @@ where
                 ui_state.visible_rows,
                 devices_sorted.len(),
             );
+        } else if ui_state.selected_tab == 4 {
+            let stats = app.get_sorted_interface_stats();
+            let selected_idx = ui_state.get_selected_interface_index(&stats).unwrap_or(0);
+            ui_state.interfaces_scroll_offset = compute_scroll_offset(
+                selected_idx,
+                ui_state.interfaces_scroll_offset,
+                ui_state.visible_rows,
+                stats.len(),
+            );
         } else {
             ui_state.ensure_valid_selection(&connections);
             let selected_idx = ui_state.get_selected_index(&connections).unwrap_or(0);
@@ -266,6 +275,11 @@ fn handle_mouse_event(
                             ui_state.selected_tab = 3;
                         }
                     }
+                    ClickAction::SelectInterface(idx) => {
+                        let stats = app.get_sorted_interface_stats();
+                        ui_state.set_selected_interface_by_index(&stats, idx);
+                        ui_state.show_interface_modal = true;
+                    }
                     ClickAction::CopyField { label, value } => {
                         copy_to_clipboard(&value, &format!("{}: {}", label, value), ui_state, app);
                     }
@@ -421,6 +435,9 @@ fn handle_key_event(
                     listeners_sorted
                         .sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
                     ui_state.move_service_selection_up(&listeners_sorted);
+                } else if ui_state.selected_tab == 4 {
+                    let stats = app.get_sorted_interface_stats();
+                    ui_state.move_interface_selection_up(&stats);
                 } else if ui_state.grouping_enabled {
                     ui_state.move_selection_up_grouped(grouped_rows);
                 } else {
@@ -437,6 +454,9 @@ fn handle_key_event(
                     listeners_sorted
                         .sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
                     ui_state.move_service_selection_down(&listeners_sorted);
+                } else if ui_state.selected_tab == 4 {
+                    let stats = app.get_sorted_interface_stats();
+                    ui_state.move_interface_selection_down(&stats);
                 } else if ui_state.grouping_enabled {
                     ui_state.move_selection_down_grouped(grouped_rows);
                 } else {
@@ -520,7 +540,11 @@ fn handle_key_event(
                 }
             }
             (KeyCode::Enter, _) => {
-                if ui_state.selected_tab == 0
+                if ui_state.show_interface_modal {
+                    ui_state.show_interface_modal = false;
+                } else if ui_state.selected_tab == 4 {
+                    ui_state.show_interface_modal = true;
+                } else if ui_state.selected_tab == 0
                     && !connections.is_empty()
                     && !(ui_state.grouping_enabled && ui_state.is_group_selected())
                 {
@@ -601,7 +625,9 @@ fn handle_key_event(
                 }
             }
             (KeyCode::Esc, _) => {
-                if !ui_state.filter_query.is_empty() {
+                if ui_state.show_interface_modal {
+                    ui_state.show_interface_modal = false;
+                } else if !ui_state.filter_query.is_empty() {
                     ui_state.clear_filter();
                     *needs_data_refresh = true;
                 } else if ui_state.selected_tab != 0 {

@@ -22,6 +22,7 @@ impl LinuxStatsProvider {
 
         Ok(InterfaceStats {
             interface_name: interface.to_string(),
+            description: resolve_description(interface),
             rx_bytes: read_stat(&base_path, "rx_bytes")?,
             tx_bytes: read_stat(&base_path, "tx_bytes")?,
             rx_packets: read_stat(&base_path, "rx_packets")?,
@@ -34,6 +35,31 @@ impl LinuxStatsProvider {
             timestamp: SystemTime::now(),
         })
     }
+}
+
+fn resolve_description(name: &str) -> Option<String> {
+    if name == "lo" {
+        return Some("Loopback".to_string());
+    }
+    if name.starts_with("tailscale") || name.starts_with("wg") {
+        return Some("VPN".to_string());
+    }
+    if name.starts_with("docker") || name.starts_with("br-") {
+        return Some("Docker/Bridge".to_string());
+    }
+    if name.starts_with("veth") {
+        return Some("Virtual Ethernet".to_string());
+    }
+    if name.starts_with("eth") || name.starts_with("en") {
+        return Some("Ethernet".to_string());
+    }
+    if name.starts_with("wlan") || name.starts_with("wl") {
+        return Some("Wi-Fi".to_string());
+    }
+    if name.starts_with("tun") || name.starts_with("tap") {
+        return Some("Tunnel/TAP".to_string());
+    }
+    None
 }
 
 impl InterfaceStatsProvider for LinuxStatsProvider {

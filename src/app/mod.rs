@@ -324,6 +324,30 @@ impl App {
         self.devices.iter().map(|d| d.value().clone()).collect()
     }
 
+    /// Sort interface statistics by captured interface first, then name
+    pub fn sort_interface_stats(&self, stats: &mut [InterfaceStats]) {
+        let captured_interface = self.get_current_interface();
+        stats.sort_by(|a, b| {
+            if let Some(ref captured) = captured_interface {
+                let a_is_captured = &a.interface_name == captured;
+                let b_is_captured = &b.interface_name == captured;
+                match (a_is_captured, b_is_captured) {
+                    (true, false) => return std::cmp::Ordering::Less,
+                    (false, true) => return std::cmp::Ordering::Greater,
+                    _ => {}
+                }
+            }
+            a.interface_name.cmp(&b.interface_name)
+        });
+    }
+
+    /// Get sorted interface statistics
+    pub fn get_sorted_interface_stats(&self) -> Vec<InterfaceStats> {
+        let mut stats = self.get_interface_stats();
+        self.sort_interface_stats(&mut stats);
+        stats
+    }
+
     /// Check if the application is still in its initial loading state
     pub fn is_loading(&self) -> bool {
         self.is_loading.load(Ordering::Relaxed)

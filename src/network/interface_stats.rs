@@ -5,6 +5,7 @@ use std::time::SystemTime;
 #[derive(Debug, Clone)]
 pub struct InterfaceStats {
     pub interface_name: String,
+    pub description: Option<String>,
     pub rx_bytes: u64,
     pub tx_bytes: u64,
     pub rx_packets: u64,
@@ -64,6 +65,7 @@ mod tests {
 
         let stats1 = InterfaceStats {
             interface_name: "test".to_string(),
+            description: None,
             rx_bytes: 1000,
             tx_bytes: 500,
             rx_packets: 10,
@@ -78,6 +80,7 @@ mod tests {
 
         let stats2 = InterfaceStats {
             interface_name: "test".to_string(),
+            description: None,
             rx_bytes: 2000,
             tx_bytes: 1000,
             rx_packets: 20,
@@ -101,6 +104,7 @@ mod tests {
 
         let stats1 = InterfaceStats {
             interface_name: "test".to_string(),
+            description: None,
             rx_bytes: 1000,
             tx_bytes: 500,
             rx_packets: 10,
@@ -127,6 +131,7 @@ mod tests {
 
         let stats1 = InterfaceStats {
             interface_name: "test".to_string(),
+            description: None,
             rx_bytes: 1000,
             tx_bytes: 500,
             rx_packets: 10,
@@ -142,6 +147,7 @@ mod tests {
         // Simulate counter reset (should use saturating_sub to avoid panic)
         let stats2 = InterfaceStats {
             interface_name: "test".to_string(),
+            description: None,
             rx_bytes: 500, // Less than previous
             tx_bytes: 250,
             rx_packets: 5,

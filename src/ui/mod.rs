@@ -25,11 +25,14 @@ pub struct UIState {
     pub selected_connection_key: Option<String>,
     pub selected_service_key: Option<String>,
     pub selected_device_mac: Option<String>,
+    pub selected_interface: Option<String>,
+    pub show_interface_modal: bool,
     pub selected_group: Option<String>,
     pub scroll_offset: usize,
     pub grouped_scroll_offset: usize,
     pub services_scroll_offset: usize,
     pub devices_scroll_offset: usize,
+    pub interfaces_scroll_offset: usize,
     pub visible_rows: usize,
     pub show_help: bool,
     pub show_port_numbers: bool,
@@ -150,11 +153,14 @@ impl Default for UIState {
             selected_connection_key: None,
             selected_service_key: None,
             selected_device_mac: None,
+            selected_interface: None,
+            show_interface_modal: false,
             selected_group: None,
             scroll_offset: 0,
             grouped_scroll_offset: 0,
             services_scroll_offset: 0,
             devices_scroll_offset: 0,
+            interfaces_scroll_offset: 0,
             visible_rows: 20,
             show_help: false,
             show_port_numbers: false,
@@ -189,6 +195,7 @@ pub enum ClickAction {
     SelectConnection(usize),
     SelectService(usize),
     SelectDevice(usize),
+    SelectInterface(usize),
     CopyField { label: String, value: String },
 }
 
@@ -307,7 +314,7 @@ pub fn draw(
                 click_regions,
             )?,
         },
-        4 => draw_interface_stats(f, app, content_area)?,
+        4 => draw_interface_stats(f, app, ui_state, content_area, click_regions)?,
         5 => draw_routes_tab(f, app, content_area)?,
         6 => draw_graph_tab(f, app, connections, content_area)?,
         7 => draw_help(f, content_area)?,
@@ -516,6 +523,56 @@ impl UIState {
         if let Some(d) = devices.get(index) {
             self.selected_device_mac = Some(d.mac.clone());
         }
+    }
+
+    pub fn get_selected_interface_index(
+        &self,
+        stats: &[crate::network::interface_stats::InterfaceStats],
+    ) -> Option<usize> {
+        self.selected_interface
+            .as_ref()
+            .and_then(|name| stats.iter().position(|s| s.interface_name == *name))
+            .or(if stats.is_empty() { None } else { Some(0) })
+    }
+
+    pub fn set_selected_interface_by_index(
+        &mut self,
+        stats: &[crate::network::interface_stats::InterfaceStats],
+        index: usize,
+    ) {
+        if let Some(s) = stats.get(index) {
+            self.selected_interface = Some(s.interface_name.clone());
+        }
+    }
+
+    pub fn move_interface_selection_up(
+        &mut self,
+        stats: &[crate::network::interface_stats::InterfaceStats],
+    ) {
+        let idx = self.get_selected_interface_index(stats).unwrap_or(0);
+        self.set_selected_interface_by_index(
+            stats,
+            if idx > 0 {
+                idx - 1
+            } else {
+                stats.len().saturating_sub(1)
+            },
+        );
+    }
+
+    pub fn move_interface_selection_down(
+        &mut self,
+        stats: &[crate::network::interface_stats::InterfaceStats],
+    ) {
+        let idx = self.get_selected_interface_index(stats).unwrap_or(0);
+        self.set_selected_interface_by_index(
+            stats,
+            if idx < stats.len().saturating_sub(1) {
+                idx + 1
+            } else {
+                0
+            },
+        );
     }
     pub fn move_device_selection_up(&mut self, devices: &[crate::network::types::Device]) {
         let idx = self.get_selected_device_index(devices).unwrap_or(0);
@@ -812,4 +869,73 @@ pub fn compute_grouped_rows<'a>(
         }
     }
     rows
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::network::interface_stats::InterfaceStats;
+    use std::time::SystemTime;
+
+    fn mock_stats(names: Vec<&str>) -> Vec<InterfaceStats> {
+        names
+            .into_iter()
+            .map(|name| InterfaceStats {
+                interface_name: name.to_string(),
+                description: None,
+                rx_bytes: 0,
+                tx_bytes: 0,
+                rx_packets: 0,
+                tx_packets: 0,
+                rx_errors: 0,
+                tx_errors: 0,
+                rx_dropped: 0,
+                tx_dropped: 0,
+                collisions: 0,
+                timestamp: SystemTime::now(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn test_interface_selection_by_name() {
+        let mut ui_state = UIState::default();
+        let stats = mock_stats(vec!["eth0", "lo", "wlan0"]);
+
+        // Select "lo" by index 1
+        ui_state.set_selected_interface_by_index(&stats, 1);
+        assert_eq!(ui_state.selected_interface.as_deref(), Some("lo"));
+        assert_eq!(ui_state.get_selected_interface_index(&stats), Some(1));
+
+        // Now if the list is re-ordered (e.g. "lo" comes first)
+        let reordered_stats = mock_stats(vec!["lo", "eth0", "wlan0"]);
+        // It should still correctly find "lo" at index 0
+        assert_eq!(ui_state.get_selected_interface_index(&reordered_stats), Some(0));
+    }
+
+    #[test]
+    fn test_interface_selection_movement() {
+        let mut ui_state = UIState::default();
+        let stats = mock_stats(vec!["eth0", "lo", "wlan0"]);
+
+        // Default selection is index 0 ("eth0")
+        assert_eq!(ui_state.get_selected_interface_index(&stats), Some(0));
+
+        // Move down to "lo"
+        ui_state.move_interface_selection_down(&stats);
+        assert_eq!(ui_state.selected_interface.as_deref(), Some("lo"));
+        assert_eq!(ui_state.get_selected_interface_index(&stats), Some(1));
+
+        // Move down to "wlan0"
+        ui_state.move_interface_selection_down(&stats);
+        assert_eq!(ui_state.selected_interface.as_deref(), Some("wlan0"));
+
+        // Wrap around to "eth0"
+        ui_state.move_interface_selection_down(&stats);
+        assert_eq!(ui_state.selected_interface.as_deref(), Some("eth0"));
+
+        // Move up to "wlan0"
+        ui_state.move_interface_selection_up(&stats);
+        assert_eq!(ui_state.selected_interface.as_deref(), Some("wlan0"));
+    }
 }
