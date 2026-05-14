@@ -23,13 +23,11 @@ pub fn draw_devices(
     draw_devices_summary(f, app, &devices, main_chunks[0]);
     draw_devices_table(f, app, ui_state, &devices, main_chunks[1], click_regions);
 
-    if ui_state.show_device_modal {
-        if let Some(idx) = ui_state.get_selected_device_index(&devices) {
-            if let Some(device) = devices.get(idx) {
+    if ui_state.show_device_modal
+        && let Some(idx) = ui_state.get_selected_device_index(&devices)
+            && let Some(device) = devices.get(idx) {
                 draw_device_modal(f, device);
             }
-        }
-    }
 
     Ok(())
 }

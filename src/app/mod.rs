@@ -373,11 +373,10 @@ impl App {
     pub fn get_local_ip(&self) -> Option<std::net::IpAddr> {
         let current = self.get_current_interface()?;
         for iface in pnet_datalink::interfaces() {
-            if iface.name == current {
-                for ip_network in iface.ips {
+            if iface.name == current
+                && let Some(ip_network) = iface.ips.into_iter().next() {
                     return Some(ip_network.ip());
                 }
-            }
         }
         None
     }

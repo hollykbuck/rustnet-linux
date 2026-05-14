@@ -354,7 +354,7 @@ pub fn update_device(
                 if port > 0 && port < 32768 {
                     // Only track "server" ports (well-known or registered)
                     // This is a heuristic - usually client ports are high
-                    d.open_ports.entry(port).or_insert_with(|| String::new());
+                    d.open_ports.entry(port).or_insert_with(String::new);
                 }
             })
             .or_insert_with(|| {

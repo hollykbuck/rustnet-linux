@@ -26,11 +26,10 @@ pub fn draw_services(
     if ui_state.show_service_modal {
         let mut listeners_sorted = listeners.clone();
         listeners_sorted.sort_by(|a, b| b.active_connections.cmp(&a.active_connections));
-        if let Some(idx) = ui_state.get_selected_service_index(&listeners_sorted) {
-            if let Some(listener) = listeners_sorted.get(idx) {
+        if let Some(idx) = ui_state.get_selected_service_index(&listeners_sorted)
+            && let Some(listener) = listeners_sorted.get(idx) {
                 draw_service_modal(f, listener);
             }
-        }
     }
 
     Ok(())

@@ -144,13 +144,11 @@ pub fn draw_routes_tab(
 
     f.render_stateful_widget(table, area, &mut state);
 
-    if ui_state.show_route_modal {
-        if let Some(idx) = ui_state.selected_route_index {
-            if let Some(Some(route)) = display_routes.get(idx) {
+    if ui_state.show_route_modal
+        && let Some(idx) = ui_state.selected_route_index
+            && let Some(Some(route)) = display_routes.get(idx) {
                 draw_route_modal(f, route);
             }
-        }
-    }
 
     Ok(())
 }

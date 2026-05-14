@@ -639,8 +639,8 @@ fn handle_key_event(
                 {
                     ui_state.toggle_group_expansion();
                     *needs_regroup = true;
-                } else if ui_state.selected_tab == 5 && ui_state.grouping_enabled {
-                    if let Some(idx) = ui_state.selected_route_index {
+                } else if ui_state.selected_tab == 5 && ui_state.grouping_enabled
+                    && let Some(idx) = ui_state.selected_route_index {
                         let routes = app.get_routes();
                         let mut groups: HashMap<String, Vec<crate::network::types::RouteEntry>> =
                             HashMap::new();
@@ -668,14 +668,13 @@ fn handle_key_event(
                             }
                         }
                     }
-                }
             }
             (KeyCode::Left, _) if ui_state.grouping_enabled => {
                 if ui_state.selected_tab == 0 {
                     ui_state.collapse_selected_group();
                     *needs_regroup = true;
-                } else if ui_state.selected_tab == 5 {
-                    if let Some(idx) = ui_state.selected_route_index {
+                } else if ui_state.selected_tab == 5
+                    && let Some(idx) = ui_state.selected_route_index {
                         let routes = app.get_routes();
                         let mut groups: HashMap<String, Vec<crate::network::types::RouteEntry>> =
                             HashMap::new();
@@ -698,14 +697,13 @@ fn handle_key_event(
                             }
                         }
                     }
-                }
             }
             (KeyCode::Right, _) | (KeyCode::Char('l'), _) if ui_state.grouping_enabled => {
                 if ui_state.selected_tab == 0 {
                     ui_state.expand_selected_group();
                     *needs_regroup = true;
-                } else if ui_state.selected_tab == 5 {
-                    if let Some(idx) = ui_state.selected_route_index {
+                } else if ui_state.selected_tab == 5
+                    && let Some(idx) = ui_state.selected_route_index {
                         let routes = app.get_routes();
                         let mut groups: HashMap<String, Vec<crate::network::types::RouteEntry>> =
                             HashMap::new();
@@ -728,7 +726,6 @@ fn handle_key_event(
                             }
                         }
                     }
-                }
             }
             (KeyCode::Char('a'), _) => {
                 ui_state.toggle_grouping();
