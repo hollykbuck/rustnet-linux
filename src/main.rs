@@ -585,6 +585,7 @@ where
     let mut connections: Vec<network::types::Connection> = Vec::new();
     let mut grouped_rows: Vec<ui::GroupedRow<'_>> = Vec::new();
     let mut listeners: Vec<network::types::Listener> = Vec::new();
+    let mut devices: Vec<network::types::Device> = Vec::new();
     let mut stats = app.get_stats();
     let mut needs_data_refresh = true;
     let mut needs_regroup = false;
@@ -610,6 +611,7 @@ where
                 Vec::new()
             };
             listeners = app.get_listeners();
+            devices = app.get_devices();
             stats = app.get_stats();
             last_tick = std::time::Instant::now();
             needs_data_refresh = false;
@@ -647,6 +649,17 @@ where
                 ui_state.services_scroll_offset,
                 ui_state.visible_rows,
                 listeners_sorted.len(),
+            );
+        } else if ui_state.selected_tab == 1 {
+            // Stable scroll offset for devices
+            let mut devices_sorted = devices.clone();
+            devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+            let selected_idx = ui_state.get_selected_device_index(&devices_sorted).unwrap_or(0);
+            ui_state.devices_scroll_offset = ui::compute_scroll_offset(
+                selected_idx,
+                ui_state.devices_scroll_offset,
+                ui_state.visible_rows,
+                devices_sorted.len(),
             );
         } else {
             ui_state.ensure_valid_selection(&connections);
@@ -729,6 +742,8 @@ where
                                         ui_state.selected_tab = tab_idx;
                                         if tab_idx == 0 {
                                             ui_state.details_view_mode = ui::DetailsViewMode::Connection;
+                                        } else if tab_idx == 1 {
+                                            ui_state.details_view_mode = ui::DetailsViewMode::Device;
                                         } else if tab_idx == 2 {
                                             ui_state.details_view_mode = ui::DetailsViewMode::Service;
                                         }
@@ -777,6 +792,18 @@ where
                                             ui_state.selected_tab = 3;
                                         }
                                     }
+                                    ui::ClickAction::SelectDevice(device_idx) => {
+                                        ui_state.details_view_mode = ui::DetailsViewMode::Device;
+                                        let mut devices_sorted = devices.clone();
+                                        devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+                                        ui_state.set_selected_device_by_index(
+                                            &devices_sorted,
+                                            device_idx,
+                                        );
+                                        if is_double_click {
+                                            ui_state.selected_tab = 3;
+                                        }
+                                    }
                                     ui::ClickAction::CopyField { label, value } => {
                                         copy_to_clipboard(
                                             &value,
@@ -801,6 +828,10 @@ where
                                     } else {
                                         ui_state.move_selection_up(&connections);
                                     }
+                                } else if ui_state.selected_tab == 1 {
+                                    let mut devices_sorted = devices.clone();
+                                    devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+                                    ui_state.move_device_selection_up(&devices_sorted);
                                 } else if ui_state.selected_tab == 2 {
                                     let mut listeners_sorted = listeners.clone();
                                     listeners_sorted.sort_by(|a, b| {
@@ -823,6 +854,10 @@ where
                                     } else {
                                         ui_state.move_selection_down(&connections);
                                     }
+                                } else if ui_state.selected_tab == 1 {
+                                    let mut devices_sorted = devices.clone();
+                                    devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+                                    ui_state.move_device_selection_down(&devices_sorted);
                                 } else if ui_state.selected_tab == 2 {
                                     let mut listeners_sorted = listeners.clone();
                                     listeners_sorted.sort_by(|a, b| {
@@ -1001,7 +1036,11 @@ where
                             (KeyCode::Up, _) | (KeyCode::Char('k'), _) => {
                                 ui_state.quit_confirmation = false;
                                 ui_state.clear_confirmation = false;
-                                if ui_state.selected_tab == 2 {
+                                if ui_state.selected_tab == 1 {
+                                    let mut devices_sorted = devices.clone();
+                                    devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+                                    ui_state.move_device_selection_up(&devices_sorted);
+                                } else if ui_state.selected_tab == 2 {
                                     let mut listeners_sorted = listeners.clone();
                                     listeners_sorted.sort_by(|a, b| {
                                         b.active_connections.cmp(&a.active_connections)
@@ -1025,7 +1064,11 @@ where
                             (KeyCode::Down, _) | (KeyCode::Char('j'), _) => {
                                 ui_state.quit_confirmation = false;
                                 ui_state.clear_confirmation = false;
-                                if ui_state.selected_tab == 2 {
+                                if ui_state.selected_tab == 1 {
+                                    let mut devices_sorted = devices.clone();
+                                    devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+                                    ui_state.move_device_selection_down(&devices_sorted);
+                                } else if ui_state.selected_tab == 2 {
                                     let mut listeners_sorted = listeners.clone();
                                     listeners_sorted.sort_by(|a, b| {
                                         b.active_connections.cmp(&a.active_connections)
@@ -1051,7 +1094,13 @@ where
                                 ui_state.quit_confirmation = false;
                                 ui_state.clear_confirmation = false;
                                 let page_size = ui_state.visible_rows.max(1);
-                                if ui_state.selected_tab == 2 {
+                                if ui_state.selected_tab == 1 {
+                                    let mut devices_sorted = devices.clone();
+                                    devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+                                    for _ in 0..page_size {
+                                        ui_state.move_device_selection_up(&devices_sorted);
+                                    }
+                                } else if ui_state.selected_tab == 2 {
                                     let mut listeners_sorted = listeners.clone();
                                     listeners_sorted.sort_by(|a, b| {
                                         b.active_connections.cmp(&a.active_connections)
@@ -1072,7 +1121,13 @@ where
                                 ui_state.quit_confirmation = false;
                                 ui_state.clear_confirmation = false;
                                 let page_size = ui_state.visible_rows.max(1);
-                                if ui_state.selected_tab == 2 {
+                                if ui_state.selected_tab == 1 {
+                                    let mut devices_sorted = devices.clone();
+                                    devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+                                    for _ in 0..page_size {
+                                        ui_state.move_device_selection_down(&devices_sorted);
+                                    }
+                                } else if ui_state.selected_tab == 2 {
                                     let mut listeners_sorted = listeners.clone();
                                     listeners_sorted.sort_by(|a, b| {
                                         b.active_connections.cmp(&a.active_connections)
@@ -1092,7 +1147,11 @@ where
                             (KeyCode::Char('g'), KeyModifiers::NONE) => {
                                 ui_state.quit_confirmation = false;
                                 ui_state.clear_confirmation = false;
-                                if ui_state.selected_tab == 2 {
+                                if ui_state.selected_tab == 1 {
+                                    let mut devices_sorted = devices.clone();
+                                    devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+                                    ui_state.set_selected_device_by_index(&devices_sorted, 0);
+                                } else if ui_state.selected_tab == 2 {
                                     let mut listeners_sorted = listeners.clone();
                                     listeners_sorted.sort_by(|a, b| {
                                         b.active_connections.cmp(&a.active_connections)
@@ -1107,7 +1166,14 @@ where
                             (KeyCode::Char('G'), _) | (KeyCode::Char('g'), KeyModifiers::SHIFT) => {
                                 ui_state.quit_confirmation = false;
                                 ui_state.clear_confirmation = false;
-                                if ui_state.selected_tab == 2 {
+                                if ui_state.selected_tab == 1 {
+                                    let mut devices_sorted = devices.clone();
+                                    devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+                                    ui_state.set_selected_device_by_index(
+                                        &devices_sorted,
+                                        devices_sorted.len().saturating_sub(1),
+                                    );
+                                } else if ui_state.selected_tab == 2 {
                                     let mut listeners_sorted = listeners.clone();
                                     listeners_sorted.sort_by(|a, b| {
                                         b.active_connections.cmp(&a.active_connections)
@@ -1132,6 +1198,10 @@ where
                                 {
                                     // Switch to details view when on a connection (not a group header)
                                     ui_state.details_view_mode = ui::DetailsViewMode::Connection;
+                                    ui_state.selected_tab = 3;
+                                } else if ui_state.selected_tab == 1 && !devices.is_empty() {
+                                    // Switch to details view when on a device
+                                    ui_state.details_view_mode = ui::DetailsViewMode::Device;
                                     ui_state.selected_tab = 3;
                                 } else if ui_state.selected_tab == 2 && !listeners.is_empty() {
                                     // Switch to details view when on a service

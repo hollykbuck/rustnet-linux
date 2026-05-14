@@ -457,6 +457,8 @@ pub enum ClickAction {
     SelectConnection(usize),
     /// Select a service by index in the services list
     SelectService(usize),
+    /// Select a device by index in the devices list
+    SelectDevice(usize),
     /// Copy a field value to clipboard (label for feedback, value for clipboard)
     CopyField { label: String, value: String },
 }
@@ -500,12 +502,13 @@ impl ClickableRegions {
 pub enum DetailsViewMode {
     Connection,
     Service,
+    Device,
 }
 
 /// UI state for managing the interface
 pub struct UIState {
     pub selected_tab: usize,
-    /// Selected details view mode (Connection or Service)
+    /// Selected details view mode (Connection, Service, or Device)
     pub details_view_mode: DetailsViewMode,
     pub selected_connection_key: Option<String>,
     pub show_help: bool,
@@ -528,6 +531,8 @@ pub struct UIState {
     pub selected_group: Option<String>,
     /// Selected service key (protocol:local_addr)
     pub selected_service_key: Option<String>,
+    /// Selected device MAC address
+    pub selected_device_mac: Option<String>,
     /// Whether GeoIP country database is available (enables Location sort column)
     pub has_geoip: bool,
     /// Last mouse click position and time, for double-click detection
@@ -542,6 +547,8 @@ pub struct UIState {
     pub grouped_scroll_offset: usize,
     /// Scroll offset for services list
     pub services_scroll_offset: usize,
+    /// Scroll offset for devices list
+    pub devices_scroll_offset: usize,
 }
 
 impl Default for UIState {
@@ -565,6 +572,7 @@ impl Default for UIState {
             expanded_groups: HashSet::new(),
             selected_group: None,
             selected_service_key: None,
+            selected_device_mac: None,
             has_geoip: false,
             last_click: None,
             show_historic: false,
@@ -572,6 +580,7 @@ impl Default for UIState {
             scroll_offset: 0,
             grouped_scroll_offset: 0,
             services_scroll_offset: 0,
+            devices_scroll_offset: 0,
         }
     }
 }
@@ -665,6 +674,50 @@ impl UIState {
             self.set_selected_service_by_index(listeners, current_index + 1);
         } else {
             self.set_selected_service_by_index(listeners, 0);
+        }
+    }
+
+    /// Get the current selected device index, if any
+    pub fn get_selected_device_index(&self, devices: &[Device]) -> Option<usize> {
+        if let Some(ref selected_mac) = self.selected_device_mac {
+            devices.iter().position(|d| d.mac == *selected_mac)
+        } else if !devices.is_empty() {
+            Some(0)
+        } else {
+            None
+        }
+    }
+
+    /// Set the selected device to the one at the given index
+    pub fn set_selected_device_by_index(&mut self, devices: &[Device], index: usize) {
+        if let Some(d) = devices.get(index) {
+            self.selected_device_mac = Some(d.mac.clone());
+        }
+    }
+
+    /// Move device selection up
+    pub fn move_device_selection_up(&mut self, devices: &[Device]) {
+        if devices.is_empty() {
+            return;
+        }
+        let current_index = self.get_selected_device_index(devices).unwrap_or(0);
+        if current_index > 0 {
+            self.set_selected_device_by_index(devices, current_index - 1);
+        } else {
+            self.set_selected_device_by_index(devices, devices.len() - 1);
+        }
+    }
+
+    /// Move device selection down
+    pub fn move_device_selection_down(&mut self, devices: &[Device]) {
+        if devices.is_empty() {
+            return;
+        }
+        let current_index = self.get_selected_device_index(devices).unwrap_or(0);
+        if current_index < devices.len().saturating_sub(1) {
+            self.set_selected_device_by_index(devices, current_index + 1);
+        } else {
+            self.set_selected_device_by_index(devices, 0);
         }
     }
 
@@ -1199,10 +1252,11 @@ pub fn draw(
             };
             draw_overview(f, &ctx, content_area, click_regions)?;
         }
-        1 => draw_devices(f, app, content_area)?,
+        1 => draw_devices(f, app, ui_state, content_area, click_regions)?,
         2 => draw_services(f, app, ui_state, content_area, click_regions)?,
         3 => {
             let listeners = app.get_listeners();
+            let devices = app.get_devices();
             match ui_state.details_view_mode {
                 DetailsViewMode::Connection => {
                     let dns_resolver = app.get_dns_resolver();
@@ -1217,6 +1271,9 @@ pub fn draw(
                 }
                 DetailsViewMode::Service => {
                     draw_service_details(f, ui_state, &listeners, content_area, click_regions)?
+                }
+                DetailsViewMode::Device => {
+                    draw_device_details(f, ui_state, &devices, content_area, click_regions)?
                 }
             }
         }
@@ -3300,6 +3357,147 @@ fn push_detail_section_styled<'a>(
     fields.push(None);
     lines.push(Line::from(Span::styled(title.into(), style)));
     fields.push(None);
+}
+
+fn draw_device_details(
+    f: &mut Frame,
+    ui_state: &UIState,
+    devices: &[Device],
+    area: Rect,
+    click_regions: &mut ClickableRegions,
+) -> Result<()> {
+    if devices.is_empty() {
+        return Ok(());
+    }
+
+    let mut devices_sorted = devices.to_vec();
+    devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+
+    let device_idx = ui_state
+        .get_selected_device_index(&devices_sorted)
+        .unwrap_or(0);
+    let device = &devices_sorted[device_idx];
+
+    let label_style = theme::fg(theme::label());
+    let mut details_text: Vec<Line> = Vec::new();
+    let mut detail_fields: Vec<Option<(String, String)>> = Vec::new();
+
+    push_detail_field_styled(
+        &mut details_text,
+        &mut detail_fields,
+        "Status",
+        if device.is_online {
+            "ONLINE".to_string()
+        } else {
+            "OFFLINE".to_string()
+        },
+        label_style,
+        if device.is_online {
+            theme::fg(theme::ok())
+        } else {
+            theme::fg(theme::muted())
+        },
+    );
+
+    push_detail_field_styled(
+        &mut details_text,
+        &mut detail_fields,
+        "IP Address",
+        device.ip.to_string(),
+        label_style,
+        theme::fg(theme::field_local_addr()),
+    );
+
+    push_detail_field(
+        &mut details_text,
+        &mut detail_fields,
+        "MAC Address",
+        device.mac.clone(),
+        label_style,
+    );
+
+    push_detail_field_styled(
+        &mut details_text,
+        &mut detail_fields,
+        "Hostname",
+        device
+            .hostname
+            .clone()
+            .unwrap_or_else(|| NONE_PLACEHOLDER.to_string()),
+        label_style,
+        theme::fg(theme::accent()),
+    );
+
+    push_detail_field_styled(
+        &mut details_text,
+        &mut detail_fields,
+        "Vendor",
+        device
+            .vendor
+            .clone()
+            .unwrap_or_else(|| NONE_PLACEHOLDER.to_string()),
+        label_style,
+        theme::fg(theme::warn()),
+    );
+
+    push_detail_field(
+        &mut details_text,
+        &mut detail_fields,
+        "First Seen",
+        format_system_time(device.first_seen),
+        label_style,
+    );
+
+    push_detail_field(
+        &mut details_text,
+        &mut detail_fields,
+        "Last Seen",
+        format_system_time(device.last_seen),
+        label_style,
+    );
+
+    push_detail_field_styled(
+        &mut details_text,
+        &mut detail_fields,
+        "Received Data",
+        format_bytes(device.bytes_received),
+        label_style,
+        theme::fg(theme::rx()),
+    );
+
+    push_detail_field_styled(
+        &mut details_text,
+        &mut detail_fields,
+        "Sent Data",
+        format_bytes(device.bytes_sent),
+        label_style,
+        theme::fg(theme::tx()),
+    );
+
+    let protocols_list = device.protocols.iter().cloned().collect::<Vec<_>>().join(", ");
+    push_detail_field(
+        &mut details_text,
+        &mut detail_fields,
+        "Protocols Detected",
+        if protocols_list.is_empty() {
+            NONE_PLACEHOLDER.to_string()
+        } else {
+            protocols_list
+        },
+        label_style,
+    );
+
+    let details_block = panel_block(format!(" Device Details: {} ", device.ip));
+    let inner = details_block.inner(area);
+    f.render_widget(details_block, area);
+
+    let paragraph = Paragraph::new(details_text).wrap(Wrap { trim: true });
+    f.render_widget(paragraph, inner);
+
+    // Register click regions for copying
+    register_detail_clicks(click_regions, area, &detail_fields, false);
+
+    Ok(())
 }
 
 fn draw_service_details(
@@ -5496,9 +5694,15 @@ fn draw_listeners_table(
 }
 
 /// Draw the Devices tab for LAN discovery
-fn draw_devices(f: &mut Frame, app: &App, area: Rect) -> Result<()> {
+fn draw_devices(
+    f: &mut Frame,
+    app: &App,
+    ui_state: &UIState,
+    area: Rect,
+    click_regions: &mut ClickableRegions,
+) -> Result<()> {
     let devices = app.get_devices();
-    
+
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -5508,19 +5712,22 @@ fn draw_devices(f: &mut Frame, app: &App, area: Rect) -> Result<()> {
         .split(area);
 
     draw_devices_summary(f, app, &devices, main_chunks[0]);
-    draw_devices_table(f, &devices, main_chunks[1]);
+    draw_devices_table(f, ui_state, &devices, main_chunks[1], click_regions);
 
     Ok(())
 }
 
 fn draw_devices_summary(f: &mut Frame, _app: &App, devices: &[Device], area: Rect) {
     let online_count = devices.iter().filter(|d| d.is_online).count();
-    
+
     // In a real implementation, we would track ARP scan progress.
     // For now, we show a simplified summary.
     let summary_text = Line::from(vec![
         Span::styled(" Devices ", theme::fg(theme::heading())),
-        Span::styled(format!(" {}/{} online ", online_count, devices.len()), theme::primary()),
+        Span::styled(
+            format!(" {}/{} online ", online_count, devices.len()),
+            theme::primary(),
+        ),
         Span::raw(" ▏ "),
         Span::styled(" 🔍 Discovery Active ", theme::fg(theme::ok())),
     ]);
@@ -5529,11 +5736,17 @@ fn draw_devices_summary(f: &mut Frame, _app: &App, devices: &[Device], area: Rec
         .borders(Borders::ALL)
         .border_style(theme::fg(theme::muted()))
         .title(summary_text);
-    
+
     f.render_widget(block, area);
 }
 
-fn draw_devices_table(f: &mut Frame, devices: &[Device], area: Rect) {
+fn draw_devices_table(
+    f: &mut Frame,
+    ui_state: &UIState,
+    devices: &[Device],
+    area: Rect,
+    click_regions: &mut ClickableRegions,
+) {
     let header_style = theme::fg(theme::heading());
     let header = Row::new(vec![
         Cell::from(" Status"),
@@ -5553,52 +5766,94 @@ fn draw_devices_table(f: &mut Frame, devices: &[Device], area: Rect) {
     let mut devices_sorted = devices.to_vec();
     devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
 
-    let rows: Vec<Row> = devices_sorted.iter().map(|d| {
-        let status_style = if d.is_online {
-            theme::fg(theme::ok())
-        } else {
-            theme::fg(theme::muted())
-        };
+    // Virtualization: only build Row objects for the visible window
+    let scroll_offset = ui_state.devices_scroll_offset;
+    let visible_rows = ui_state.visible_rows.max(1);
+    let window_end = (scroll_offset + visible_rows + 1).min(devices_sorted.len());
+    let visible_devices = &devices_sorted[scroll_offset.min(devices_sorted.len())..window_end];
 
-        let last_seen_str = format_system_time(d.last_seen);
-        let first_seen_str = format_system_time(d.first_seen);
-        
-        let details = d.protocols.iter().cloned().collect::<Vec<_>>().join(" ");
+    let rows: Vec<Row> = visible_devices
+        .iter()
+        .map(|d| {
+            let status_style = if d.is_online {
+                theme::fg(theme::ok())
+            } else {
+                theme::fg(theme::muted())
+            };
 
-        Row::new(vec![
-            Cell::from(Line::from(vec![
-                Span::styled(" ● ", status_style),
-                Span::raw(if d.is_online { "ONLINE" } else { "OFFLINE" }),
-            ])),
-            Cell::from(d.ip.to_string()),
-            Cell::from(d.hostname.as_deref().unwrap_or("—")),
-            Cell::from(d.mac.clone()),
-            Cell::from(d.vendor.as_deref().unwrap_or("—")),
-            Cell::from(first_seen_str),
-            Cell::from(last_seen_str),
-            Cell::from(format_bytes(d.bytes_received)),
-            Cell::from(format_bytes(d.bytes_sent)),
-            Cell::from(details),
-        ])
-    }).collect();
+            let last_seen_str = format_system_time(d.last_seen);
+            let first_seen_str = format_system_time(d.first_seen);
 
-    let table = Table::new(rows, [
-        Constraint::Length(10), // Status
-        Constraint::Length(16), // IP
-        Constraint::Length(15), // Hostname
-        Constraint::Length(18), // MAC
-        Constraint::Length(20), // Vendor
-        Constraint::Length(12), // First
-        Constraint::Length(12), // Last
-        Constraint::Length(12), // Recv
-        Constraint::Length(12), // Sent
-        Constraint::Min(20),    // Details
-    ])
+            let details = d.protocols.iter().cloned().collect::<Vec<_>>().join(" ");
+
+            Row::new(vec![
+                Cell::from(Line::from(vec![
+                    Span::styled(" ● ", status_style),
+                    Span::raw(if d.is_online { "ONLINE" } else { "OFFLINE" }),
+                ])),
+                Cell::from(d.ip.to_string()),
+                Cell::from(d.hostname.as_deref().unwrap_or("—")),
+                Cell::from(d.mac.clone()),
+                Cell::from(d.vendor.as_deref().unwrap_or("—")),
+                Cell::from(first_seen_str),
+                Cell::from(last_seen_str),
+                Cell::from(format_bytes(d.bytes_received)),
+                Cell::from(format_bytes(d.bytes_sent)),
+                Cell::from(details),
+            ])
+        })
+        .collect();
+
+    // Create table state with selection adjusted to windowed slice
+    let mut state = ratatui::widgets::TableState::default();
+    if let Some(selected_index) = ui_state.get_selected_device_index(&devices_sorted) {
+        state.select(Some(selected_index.saturating_sub(scroll_offset)));
+    }
+
+    let table = Table::new(
+        rows,
+        [
+            Constraint::Length(10), // Status
+            Constraint::Length(16), // IP
+            Constraint::Length(15), // Hostname
+            Constraint::Length(18), // MAC
+            Constraint::Length(20), // Vendor
+            Constraint::Length(12), // First
+            Constraint::Length(12), // Last
+            Constraint::Length(12), // Recv
+            Constraint::Length(12), // Sent
+            Constraint::Min(20),    // Details
+        ],
+    )
     .header(header)
-    .block(panel_block(format!(" DISCOVERED DEVICES ({}) ", devices.len())))
-    .row_highlight_style(theme::row_highlight());
+    .block(panel_block(format!(
+        " DISCOVERED DEVICES ({}) ",
+        devices.len()
+    )))
+    .row_highlight_style(theme::row_highlight())
+    .highlight_symbol("> ");
 
-    f.render_widget(table, area);
+    f.render_stateful_widget(table, area, &mut state);
+
+    // Register click regions for visible device rows
+    click_regions.scroll_area = Some(area);
+    let inner = area.inner(ratatui::layout::Margin {
+        horizontal: 1,
+        vertical: 1,
+    });
+    let header_height = 1_u16;
+    let visible_start_y = inner.y + header_height;
+    let max_visible_rows = inner.height.saturating_sub(header_height) as usize;
+
+    for i in 0..max_visible_rows {
+        let device_idx = scroll_offset + i;
+        if device_idx >= devices_sorted.len() {
+            break;
+        }
+        let row_y = visible_start_y + i as u16;
+        let row_rect = Rect::new(inner.x, row_y, inner.width, 1);
+        click_regions.register(row_rect, ClickAction::SelectDevice(device_idx));
+    }
 }
 
 fn format_system_time(time: SystemTime) -> String {

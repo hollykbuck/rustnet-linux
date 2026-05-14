@@ -2174,6 +2174,13 @@ fn update_device(
 ) {
     let now = SystemTime::now();
 
+    // Check if this packet provides a definitive IP-MAC binding (ARP or DHCP)
+    let is_dhcp = if let Some(ref dpi) = parsed.dpi_result {
+        matches!(dpi.application, ApplicationProtocol::Dhcp(_))
+    } else {
+        false
+    };
+
     // Helper to update or create a device entry.
     // `force` bypasses the scope check (used for explicit ARP mappings).
     let upsert_device = |ip: IpAddr, mac: Option<String>, is_sent: bool, force: bool| {
@@ -2189,11 +2196,12 @@ fn update_device(
             }
         }
 
+        // Signal strength: ARP and DHCP are definitive.
+        let is_definitive = force || is_dhcp;
+
         // Apply heuristic: only trust IP-MAC association if the IP is local/private,
-        // or if it's an explicit ARP confirmation. Associating a global IP with
-        // a MAC usually results in the local gateway's MAC "stealing" the IPs
-        // of every internet host the user visits.
-        if !force {
+        // or if it's an explicit ARP/DHCP confirmation.
+        if !is_definitive {
             let scope = classify(ip);
             match scope {
                 Scope::Private | Scope::LinkLocal | Scope::UniqueLocal | Scope::Cgnat => {}
@@ -2212,9 +2220,23 @@ fn update_device(
         devices
             .entry(mac_addr.clone())
             .and_modify(|d| {
+                // If the IP changed, only update it if the new signal is definitive
+                // or if the existing IP is extremely stale (e.g. 1 hour).
+                // This prevents gateway MACs from "jumping" between the IPs of
+                // various routed internal hosts.
+                if d.ip != ip {
+                    let is_stale = d
+                        .last_seen
+                        .duration_since(SystemTime::UNIX_EPOCH)
+                        .is_ok_and(|_| d.last_seen.elapsed().unwrap_or_default() > Duration::from_secs(3600));
+                    
+                    if is_definitive || is_stale {
+                        d.ip = ip;
+                    }
+                }
+
                 d.last_seen = now;
                 d.is_online = true;
-                d.ip = ip; // IP might have changed (DHCP)
                 if is_sent {
                     d.bytes_sent += parsed.packet_len as u64;
                 } else {
