@@ -271,7 +271,7 @@ pub fn draw(
 }
 
 fn draw_tabs(f: &mut Frame, ui_state: &UIState, area: Rect, click_regions: &mut ClickableRegions) {
-    let titles = vec!["Overview", "Devices", "Services", "Details", "Interfaces", "Graph", "Help"];
+    let titles = ["Overview", "Devices", "Services", "Details", "Interfaces", "Graph", "Help"];
     let tabs = Tabs::new(titles.iter().cloned().map(|t| format!(" {t} ")).map(Line::from).collect::<Vec<_>>())
         .block(Block::default().borders(Borders::ALL).border_style(fg(muted())))
         .select(ui_state.selected_tab)
@@ -393,9 +393,8 @@ impl UIState {
         self.set_selected_by_index(connections, connections.len().saturating_sub(1));
     }
     pub fn ensure_valid_selection(&mut self, connections: &[crate::network::types::Connection]) {
-        if self.selected_connection_key.is_none() || self.get_selected_index(connections).is_none() {
-            if !connections.is_empty() { self.set_selected_by_index(connections, 0); }
-        }
+        if (self.selected_connection_key.is_none() || self.get_selected_index(connections).is_none())
+            && !connections.is_empty() { self.set_selected_by_index(connections, 0); }
     }
     pub fn enter_filter_mode(&mut self) { self.filter_mode = true; self.filter_cursor_position = self.filter_query.len(); }
     pub fn exit_filter_mode(&mut self) { self.filter_mode = false; }
@@ -413,8 +412,8 @@ impl UIState {
     pub fn collapse_selected_group(&mut self) { if let Some(ref g) = self.selected_group { self.expanded_groups.remove(g); } }
     pub fn get_selected_grouped_index(&self, rows: &[GroupedRow]) -> Option<usize> {
         if rows.is_empty() { return None; }
-        if let Some(ref k) = self.selected_connection_key { if let Some(p) = rows.iter().position(|r| if let GroupedRow::Connection { connection, .. } = r { connection.key() == *k } else { false }) { return Some(p); } }
-        if let Some(ref g) = self.selected_group { if let Some(p) = rows.iter().position(|r| if let GroupedRow::Group { process_name, .. } = r { process_name == g } else { false }) { return Some(p); } }
+        if let Some(ref k) = self.selected_connection_key && let Some(p) = rows.iter().position(|r| if let GroupedRow::Connection { connection, .. } = r { connection.key() == *k } else { false }) { return Some(p); }
+        if let Some(ref g) = self.selected_group && let Some(p) = rows.iter().position(|r| if let GroupedRow::Group { process_name, .. } = r { process_name == g } else { false }) { return Some(p); }
         Some(0)
     }
     pub fn set_selected_grouped_by_index(&mut self, rows: &[GroupedRow], index: usize) {
@@ -424,7 +423,7 @@ impl UIState {
     pub fn move_selection_down_grouped(&mut self, rows: &[GroupedRow]) { let idx = self.get_selected_grouped_index(rows).unwrap_or(0); self.set_selected_grouped_by_index(rows, if idx < rows.len().saturating_sub(1) { idx + 1 } else { 0 }); }
     pub fn move_selection_page_up_grouped(&mut self, rows: &[GroupedRow], size: usize) { let idx = self.get_selected_grouped_index(rows).unwrap_or(0); self.set_selected_grouped_by_index(rows, idx.saturating_sub(size)); }
     pub fn move_selection_page_down_grouped(&mut self, rows: &[GroupedRow], size: usize) { let idx = self.get_selected_grouped_index(rows).unwrap_or(0); self.set_selected_grouped_by_index(rows, (idx + size).min(rows.len().saturating_sub(1))); }
-    pub fn ensure_valid_grouped_selection(&mut self, rows: &[GroupedRow]) { if self.selected_group.is_none() || self.get_selected_grouped_index(rows).is_none() { if !rows.is_empty() { self.set_selected_grouped_by_index(rows, 0); } } }
+    pub fn ensure_valid_grouped_selection(&mut self, rows: &[GroupedRow]) { if (self.selected_group.is_none() || self.get_selected_grouped_index(rows).is_none()) && !rows.is_empty() { self.set_selected_grouped_by_index(rows, 0); } }
     pub fn is_group_selected(&self) -> bool { self.selected_group.is_some() && self.selected_connection_key.is_none() }
 }
 

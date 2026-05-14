@@ -42,11 +42,10 @@ pub fn draw_connection_details(
     push_detail_field(&mut details_text, &mut detail_fields, "PID", conn.pid.map(|p| p.to_string()).unwrap_or_else(|| NONE_PLACEHOLDER.to_string()), label_style);
     push_detail_field_styled(&mut details_text, &mut detail_fields, "Service", conn.service_name.clone().unwrap_or_else(|| NONE_PLACEHOLDER.to_string()), label_style, field_service());
 
-    if let Some(resolver) = dns_resolver {
-        if let Some(h) = resolver.get_hostname(&conn.remote_addr.ip()) {
+    if let Some(resolver) = dns_resolver
+        && let Some(h) = resolver.get_hostname(&conn.remote_addr.ip()) {
             push_detail_field_styled(&mut details_text, &mut detail_fields, "Hostname", h, label_style, fg(accent()));
         }
-    }
 
     let detail_title = format!(" {} → {} ", conn.process_name.as_deref().unwrap_or("?"), conn.remote_addr);
     let left_para = Paragraph::new(details_text).block(panel_block(detail_title)).wrap(Wrap { trim: false });

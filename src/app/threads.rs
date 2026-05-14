@@ -198,7 +198,7 @@ impl crate::app::App {
                                 }
 
                                 // Log every 10000 packets or every 5 seconds
-                                if packets_read % 10000 == 0
+                                if packets_read.is_multiple_of(10000)
                                     || last_log.elapsed() > Duration::from_secs(5)
                                 {
                                     info!("Read {} packets so far", packets_read);
@@ -457,7 +457,7 @@ impl crate::app::App {
                         .fetch_add(batch.len() as u64, Ordering::Relaxed);
 
                     // Log progress
-                    if total_processed % 10000 == 0
+                    if total_processed.is_multiple_of(10000)
                         || last_log.elapsed() > Duration::from_secs(5)
                     {
                         debug!(

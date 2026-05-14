@@ -151,11 +151,10 @@ where
                 crossterm::event::Event::Mouse(mouse) => {
                     handle_mouse_event(mouse, &mut ui_state, &click_regions, app, &connections, &grouped_rows, &listeners, &devices, &mut needs_regroup);
                 }
-                crossterm::event::Event::Key(key) => {
-                    if handle_key_event(key, &mut ui_state, app, &connections, &grouped_rows, &listeners, &devices, &mut needs_data_refresh, &mut needs_regroup)? {
+                crossterm::event::Event::Key(key)
+                    if handle_key_event(key, &mut ui_state, app, &connections, &grouped_rows, &listeners, &devices, &mut needs_data_refresh, &mut needs_regroup)? => {
                         break;
                     }
-                }
                 _ => {}
             }
         }

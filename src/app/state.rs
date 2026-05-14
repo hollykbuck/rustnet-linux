@@ -251,11 +251,10 @@ pub fn update_device(
         }
 
         // Special handling for IPv4 broadcast
-        if let IpAddr::V4(v4) = ip {
-            if v4.is_broadcast() || v4.octets()[3] == 255 {
+        if let IpAddr::V4(v4) = ip
+            && (v4.is_broadcast() || v4.octets()[3] == 255) {
                 return;
             }
-        }
 
         // Signal strength: ARP and DHCP are definitive.
         let is_definitive = force || is_dhcp;

@@ -77,11 +77,10 @@ fn main() -> Result<()> {
     }
 
     // Apply platform-specific sandbox
-    if let Err(e) = initialize_sandbox(&app, &matches) {
-        if matches.get_flag("sandbox-strict") {
+    if let Err(e) = initialize_sandbox(&app, &matches)
+        && matches.get_flag("sandbox-strict") {
             return Err(e);
         }
-    }
 
     // Run the UI loop
     let res = run_ui_loop(&mut terminal, &app);

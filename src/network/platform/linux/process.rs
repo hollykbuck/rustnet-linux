@@ -282,12 +282,11 @@ impl ProcessLookup for LinuxProcessLookup {
                         active_connections: 0,
                     };
 
-                    if let Ok(inode) = parts[9].parse::<u64>() {
-                        if let Some((pid, name)) = inode_to_process.get(&inode) {
+                    if let Ok(inode) = parts[9].parse::<u64>()
+                        && let Some((pid, name)) = inode_to_process.get(&inode) {
                             listener.pid = Some(*pid);
                             listener.process_name = Some(name.clone());
                         }
-                    }
 
                     listeners.push(listener);
                 }

@@ -210,7 +210,7 @@ fn draw_grouped_connections_list(
     area: Rect,
     _dns_resolver: Option<&crate::network::dns::DnsResolver>,
     show_location: bool,
-    click_regions: &mut ClickableRegions,
+    _click_regions: &mut ClickableRegions,
 ) {
     let widths = [Constraint::Min(0); 10]; // Simplified widths for now
     let rows: Vec<Row> = grouped_rows.iter().map(|row| {
