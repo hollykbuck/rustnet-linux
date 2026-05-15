@@ -41,6 +41,33 @@ pub fn sort_listeners(
     });
 }
 
+pub fn sort_devices(
+    devices: &mut [Device],
+    column: crate::ui::DeviceSortColumn,
+    ascending: bool,
+) {
+    use crate::ui::DeviceSortColumn;
+
+    devices.sort_by(|a, b| {
+        let ordering = match column {
+            DeviceSortColumn::Status => a.is_online.cmp(&b.is_online),
+            DeviceSortColumn::IpAddress => a.ip.cmp(&b.ip),
+            DeviceSortColumn::Hostname => a.hostname.cmp(&b.hostname),
+            DeviceSortColumn::MacAddress => a.mac.cmp(&b.mac),
+            DeviceSortColumn::Vendor => a.vendor.cmp(&b.vendor),
+            DeviceSortColumn::LastSeen => a.last_seen.cmp(&b.last_seen),
+            DeviceSortColumn::BytesReceived => a.bytes_received.cmp(&b.bytes_received),
+            DeviceSortColumn::BytesSent => a.bytes_sent.cmp(&b.bytes_sent),
+        };
+
+        if ascending {
+            ordering
+        } else {
+            ordering.reverse()
+        }
+    });
+}
+
 /// Sort connections based on the specified column and direction
 pub fn sort_connections(
     connections: &mut [Connection],

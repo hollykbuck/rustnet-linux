@@ -47,6 +47,7 @@ pub struct UIState {
     pub show_historic: bool,
     pub sort_column: SortColumn,
     pub service_sort_column: ServiceSortColumn,
+    pub device_sort_column: DeviceSortColumn,
     pub sort_ascending: bool,
     pub grouping_enabled: bool,
     pub service_grouping_enabled: bool,
@@ -80,6 +81,34 @@ impl ServiceSortColumn {
             Self::Service => Self::Process,
             Self::Process => Self::Connections,
             Self::Connections => Self::Protocol,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DeviceSortColumn {
+    Status,
+    IpAddress,
+    Hostname,
+    MacAddress,
+    Vendor,
+    #[default]
+    LastSeen,
+    BytesReceived,
+    BytesSent,
+}
+
+impl DeviceSortColumn {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Status => Self::IpAddress,
+            Self::IpAddress => Self::Hostname,
+            Self::Hostname => Self::MacAddress,
+            Self::MacAddress => Self::Vendor,
+            Self::Vendor => Self::LastSeen,
+            Self::LastSeen => Self::BytesReceived,
+            Self::BytesReceived => Self::BytesSent,
+            Self::BytesSent => Self::Status,
         }
     }
 }
@@ -222,6 +251,7 @@ impl Default for UIState {
             show_historic: false,
             sort_column: SortColumn::CreatedAt,
             service_sort_column: ServiceSortColumn::default(),
+            device_sort_column: DeviceSortColumn::default(),
             sort_ascending: true,
             grouping_enabled: false,
             service_grouping_enabled: false,
@@ -308,6 +338,7 @@ pub fn draw(
     connections: &[crate::network::types::Connection],
     grouped_rows: Option<&[GroupedRow]>,
     service_grouped_rows: Option<&[ServiceGroupedRow]>,
+    devices: &[crate::network::types::Device],
     stats: &crate::app::AppStats,
     click_regions: &mut ClickableRegions,
 ) -> Result<()> {
@@ -351,7 +382,7 @@ pub fn draw(
             content_area,
             click_regions,
         )?,
-        1 => draw_devices(f, app, ui_state, content_area, click_regions)?,
+        1 => draw_devices(f, app, ui_state, devices, content_area, click_regions)?,
         2 => draw_services(
             f,
             app,
@@ -762,6 +793,8 @@ impl UIState {
     pub fn cycle_sort_column(&mut self) {
         if self.selected_tab == 2 {
             self.service_sort_column = self.service_sort_column.next();
+        } else if self.selected_tab == 1 {
+            self.device_sort_column = self.device_sort_column.next();
         } else {
             self.sort_column = self.sort_column.next(self.has_geoip);
             self.sort_ascending = self.sort_column.default_direction();
@@ -779,6 +812,7 @@ impl UIState {
         self.service_selected_group = None;
         self.sort_column = SortColumn::default();
         self.service_sort_column = ServiceSortColumn::default();
+        self.device_sort_column = DeviceSortColumn::default();
         self.sort_ascending = true;
         self.filter_query.clear();
         self.filter_mode = false;
@@ -1013,6 +1047,14 @@ impl UIState {
             && !rows.is_empty()
         {
             self.set_selected_service_grouped_by_index(rows, 0);
+        }
+    }
+
+    pub fn ensure_valid_device_selection(&mut self, devices: &[crate::network::types::Device]) {
+        if (self.selected_device_mac.is_none() || self.get_selected_device_index(devices).is_none())
+            && !devices.is_empty()
+        {
+            self.set_selected_device_by_index(devices, 0);
         }
     }
 

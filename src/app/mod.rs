@@ -360,6 +360,31 @@ impl App {
             .collect()
     }
 
+    /// Get filtered devices based on a query string
+    pub fn get_filtered_devices(&self, query: &str) -> Vec<Device> {
+        let devices = self.get_devices();
+        if query.is_empty() {
+            return devices;
+        }
+
+        let query = query.to_lowercase();
+        devices
+            .into_iter()
+            .filter(|d| {
+                d.ip.to_string().contains(&query)
+                    || d.mac.to_lowercase().contains(&query)
+                    || d.hostname
+                        .as_ref()
+                        .map(|n| n.to_lowercase().contains(&query))
+                        .unwrap_or(false)
+                    || d.vendor
+                        .as_ref()
+                        .map(|v| v.to_lowercase().contains(&query))
+                        .unwrap_or(false)
+            })
+            .collect()
+    }
+
     /// Sort interface statistics by captured interface first, then name
     pub fn sort_interface_stats(&self, stats: &mut [InterfaceStats]) {
         let captured_interface = self.get_current_interface();

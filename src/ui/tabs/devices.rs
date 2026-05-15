@@ -7,11 +7,10 @@ pub fn draw_devices(
     f: &mut Frame,
     app: &App,
     ui_state: &UIState,
+    devices: &[Device],
     area: Rect,
     click_regions: &mut ClickableRegions,
 ) -> anyhow::Result<()> {
-    let devices = app.get_devices();
-
     let main_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
@@ -20,11 +19,11 @@ pub fn draw_devices(
         ])
         .split(area);
 
-    draw_devices_summary(f, app, &devices, main_chunks[0]);
-    draw_devices_table(f, app, ui_state, &devices, main_chunks[1], click_regions);
+    draw_devices_summary(f, app, devices, main_chunks[0]);
+    draw_devices_table(f, app, ui_state, devices, main_chunks[1], click_regions);
 
     if ui_state.show_device_modal
-        && let Some(idx) = ui_state.get_selected_device_index(&devices)
+        && let Some(idx) = ui_state.get_selected_device_index(devices)
             && let Some(device) = devices.get(idx) {
                 draw_device_modal(f, device);
             }
@@ -174,30 +173,53 @@ fn draw_devices_table(
     area: Rect,
     click_regions: &mut ClickableRegions,
 ) {
-    let header_style = fg(heading());
-    let header = Row::new(vec![
-        Cell::from("Status ▼"),
-        Cell::from("IP Address"),
-        Cell::from("Hostname"),
-        Cell::from("MAC"),
-        Cell::from("Vendor"),
-        Cell::from("Ports"),
-        Cell::from("First"),
-        Cell::from("Last"),
-        Cell::from("↓ Recv"),
-        Cell::from("↑ Sent"),
-        Cell::from("Details"),
-    ])
-    .style(header_style)
-    .height(1);
+    let titles = [
+        "Status",
+        "IP Address",
+        "Hostname",
+        "MAC",
+        "Vendor",
+        "Ports",
+        "First",
+        "Last",
+        "Recv",
+        "Sent",
+        "Details",
+    ];
 
-    let mut devices_sorted = devices.to_vec();
-    devices_sorted.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+    let header_cells: Vec<Cell> = titles
+        .iter()
+        .enumerate()
+        .map(|(i, title)| {
+            let sort_idx = match ui_state.device_sort_column {
+                DeviceSortColumn::Status => 0,
+                DeviceSortColumn::IpAddress => 1,
+                DeviceSortColumn::Hostname => 2,
+                DeviceSortColumn::MacAddress => 3,
+                DeviceSortColumn::Vendor => 4,
+                DeviceSortColumn::LastSeen => 7,
+                DeviceSortColumn::BytesReceived => 8,
+                DeviceSortColumn::BytesSent => 9,
+            };
+
+            if i == sort_idx {
+                let indicator = if ui_state.sort_ascending { " ▲" } else { " ▼" };
+                Cell::from(Line::from(vec![
+                    Span::raw(*title),
+                    Span::raw(indicator),
+                ]))
+            } else {
+                Cell::from(*title)
+            }
+        })
+        .collect();
+
+    let header = Row::new(header_cells).style(fg(heading())).height(1);
 
     let scroll_offset = ui_state.devices_scroll_offset;
     let visible_rows = ui_state.visible_rows.max(1);
-    let window_end = (scroll_offset + visible_rows + 1).min(devices_sorted.len());
-    let visible_devices = &devices_sorted[scroll_offset.min(devices_sorted.len())..window_end];
+    let window_end = (scroll_offset + visible_rows + 1).min(devices.len());
+    let visible_devices = &devices[scroll_offset.min(devices.len())..window_end];
 
     let rows: Vec<Row> = visible_devices
         .iter()
@@ -205,7 +227,7 @@ fn draw_devices_table(
             let status_style = if d.is_online { fg(ok()) } else { fg(muted()) };
 
             let ip_str = if d.is_gateway {
-                format!("{} (gateway)", d.ip)
+                format!("{} (gw)", d.ip)
             } else {
                 d.ip.to_string()
             };
@@ -236,7 +258,7 @@ fn draw_devices_table(
             Row::new(vec![
                 Cell::from(Line::from(vec![
                     Span::styled(" ● ", status_style),
-                    Span::raw(if d.is_online { "ONLINE" } else { "OFFLINE" }),
+                    Span::raw(if d.is_online { "ON" } else { "OFF" }),
                 ])),
                 Cell::from(ip_str),
                 Cell::from(d.hostname.as_deref().unwrap_or("—")),
@@ -253,19 +275,19 @@ fn draw_devices_table(
         .collect();
 
     let mut state = ratatui::widgets::TableState::default();
-    if let Some(selected_index) = ui_state.get_selected_device_index(&devices_sorted) {
+    if let Some(selected_index) = ui_state.get_selected_device_index(devices) {
         state.select(Some(selected_index.saturating_sub(scroll_offset)));
     }
 
     let table = Table::new(
         rows,
         [
-            Constraint::Length(10),
-            Constraint::Length(22), // IP Address + (gateway)
+            Constraint::Length(7),
+            Constraint::Length(18), // IP Address + (gw)
             Constraint::Length(15),
             Constraint::Length(18),
             Constraint::Length(20),
-            Constraint::Length(20), // Ports
+            Constraint::Length(15), // Ports
             Constraint::Length(10), // First
             Constraint::Length(10), // Last
             Constraint::Length(12), // Recv
@@ -290,7 +312,7 @@ fn draw_devices_table(
     let header_height = 1_u16;
     for i in 0..(inner.height.saturating_sub(header_height) as usize) {
         let device_idx = scroll_offset + i;
-        if device_idx >= devices_sorted.len() {
+        if device_idx >= devices.len() {
             break;
         }
         click_regions.register(
