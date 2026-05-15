@@ -939,7 +939,7 @@ impl crate::app::App {
                 #[cfg(target_os = "linux")]
                 {
                     use crate::network::platform::LinuxRouteProvider;
-                    match LinuxRouteProvider::get_routes() {
+                    match LinuxRouteProvider::get_routes().await {
                         Ok(new_routes) => {
                             if let Ok(mut guard) = routes.write() {
                                 *guard = new_routes;
