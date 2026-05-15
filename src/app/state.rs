@@ -1,18 +1,18 @@
 use dashmap::DashMap;
-use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, LazyLock, Mutex};
-use std::time::{Instant, SystemTime};
+use std::time::SystemTime;
 
 use crate::app::logging::log_connection_event;
 use crate::app::types::AppStats;
 use crate::network::bogon::{Scope, classify};
 use crate::network::dns::DnsResolver;
+use crate::network::merge::{create_connection_from_packet, merge_packet_into_connection};
 use crate::network::oui::OuiLookup;
 use crate::network::parser::ParsedPacket;
 use crate::network::types::{
-    ApplicationProtocol, ArpOperation, Connection, Device, DpiInfo, NdpOperation, ProtocolState,
+    ApplicationProtocol, ArpOperation, Connection, Device, NdpOperation, ProtocolState,
 };
 
 /// Global mapping for QUIC connection IDs to connection keys.
@@ -35,7 +35,6 @@ pub fn update_connection(
 ) {
     let key = parsed.connection_key.clone();
     let now = SystemTime::now();
-    let instant_now = Instant::now();
 
     // Special handling for QUIC: check for connection migration via CID
     // We check if DPI identified QUIC and use its CID if available
@@ -59,20 +58,18 @@ pub fn update_connection(
     connections
         .entry(final_key)
         .and_modify(|c| {
-            // Update stats
-            if parsed.is_outgoing {
-                c.bytes_sent += parsed.packet_len as u64;
-                c.packets_sent += 1;
-            } else {
-                c.bytes_received += parsed.packet_len as u64;
-                c.packets_received += 1;
-            }
-
-            c.last_activity = now;
-
-            // Update state (TCP, etc.)
             let old_state = c.protocol_state.clone();
-            c.protocol_state = parsed.protocol_state.clone();
+            let (retransmits, out_of_order, fast_retransmits) =
+                merge_packet_into_connection(c, &parsed, now);
+            stats
+                .total_tcp_retransmits
+                .fetch_add(retransmits, Ordering::Relaxed);
+            stats
+                .total_tcp_out_of_order
+                .fetch_add(out_of_order, Ordering::Relaxed);
+            stats
+                .total_tcp_fast_retransmits
+                .fetch_add(fast_retransmits, Ordering::Relaxed);
 
             // Log state transitions
             if old_state != c.protocol_state
@@ -80,55 +77,12 @@ pub fn update_connection(
             {
                 log_connection_event(log_path, "state_change", c, None, dns_resolver);
             }
-
-            // Update DPI info if available
-            if let Some(ref dpi) = parsed.dpi_result {
-                c.dpi_info = Some(DpiInfo {
-                    application: dpi.application.clone(),
-                    last_update_time: instant_now,
-                });
-            }
         })
         .or_insert_with(|| {
             // Log new connection
             stats.connections_tracked.fetch_add(1, Ordering::Relaxed);
 
-            let conn = Connection {
-                protocol: parsed.protocol,
-                local_addr: parsed.local_addr,
-                remote_addr: parsed.remote_addr,
-                protocol_state: parsed.protocol_state,
-                pid: parsed.process_id,
-                process_name: parsed.process_name,
-                connection_direction: Some(parsed.is_outgoing),
-                bytes_sent: if parsed.is_outgoing {
-                    parsed.packet_len as u64
-                } else {
-                    0
-                },
-                bytes_received: if parsed.is_outgoing {
-                    0
-                } else {
-                    parsed.packet_len as u64
-                },
-                packets_sent: if parsed.is_outgoing { 1 } else { 0 },
-                packets_received: if parsed.is_outgoing { 0 } else { 1 },
-                created_at: now,
-                last_activity: now,
-                closed_at: None,
-                service_name: None,
-                dpi_info: parsed.dpi_result.map(|d| DpiInfo {
-                    application: d.application,
-                    last_update_time: instant_now,
-                }),
-                geoip_info: None,
-                is_historic: false,
-                current_incoming_rate_bps: 0.0,
-                current_outgoing_rate_bps: 0.0,
-                rate_tracker: crate::network::types::RateTracker::new(),
-                tcp_analytics: None,
-                initial_rtt: None,
-            };
+            let conn = create_connection_from_packet(&parsed, now);
 
             // Async log new connection
             if let Some(log_path) = json_log_path {
@@ -501,4 +455,100 @@ pub fn sort_connections(
             ordering.reverse()
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::network::parser::{TcpFlags, TcpHeaderInfo};
+    use crate::network::types::{Protocol, RttTracker, TcpState};
+    use crossbeam::channel::unbounded;
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+    fn tcp_packet(flags: TcpFlags, is_outgoing: bool) -> ParsedPacket {
+        ParsedPacket {
+            connection_key: "TCP:192.168.1.10:50000-TCP:93.184.216.34:443".to_string(),
+            protocol: Protocol::Tcp,
+            local_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10)), 50000),
+            remote_addr: SocketAddr::new(IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)), 443),
+            local_mac: None,
+            remote_mac: None,
+            tcp_header: Some(TcpHeaderInfo {
+                seq: 1,
+                ack: 1,
+                window: 65535,
+                flags,
+                payload_len: 0,
+            }),
+            protocol_state: ProtocolState::Tcp(TcpState::Unknown),
+            is_outgoing,
+            packet_len: 40,
+            dpi_result: None,
+            process_name: None,
+            process_id: None,
+        }
+    }
+
+    #[test]
+    fn update_connection_advances_tcp_state_from_flags() {
+        let connections = DashMap::new();
+        let stats = AppStats::default();
+        let rtt_tracker = Arc::new(Mutex::new(RttTracker::new()));
+        let (log_tx, _log_rx) = unbounded();
+        let no_log = None;
+
+        update_connection(
+            &connections,
+            tcp_packet(
+                TcpFlags {
+                    syn: true,
+                    ack: false,
+                    fin: false,
+                    rst: false,
+                    psh: false,
+                    urg: false,
+                },
+                true,
+            ),
+            &stats,
+            &no_log,
+            &rtt_tracker,
+            None,
+            &log_tx,
+        );
+
+        let conn = connections
+            .get("TCP:192.168.1.10:50000-TCP:93.184.216.34:443")
+            .expect("connection should be inserted");
+        assert_eq!(conn.protocol_state, ProtocolState::Tcp(TcpState::SynSent));
+        drop(conn);
+
+        update_connection(
+            &connections,
+            tcp_packet(
+                TcpFlags {
+                    syn: true,
+                    ack: true,
+                    fin: false,
+                    rst: false,
+                    psh: false,
+                    urg: false,
+                },
+                false,
+            ),
+            &stats,
+            &no_log,
+            &rtt_tracker,
+            None,
+            &log_tx,
+        );
+
+        let conn = connections
+            .get("TCP:192.168.1.10:50000-TCP:93.184.216.34:443")
+            .expect("connection should still exist");
+        assert_eq!(
+            conn.protocol_state,
+            ProtocolState::Tcp(TcpState::Established)
+        );
+    }
 }

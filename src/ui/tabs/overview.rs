@@ -4,6 +4,7 @@ use crate::network::types::{
 };
 use crate::ui::*;
 use ratatui::widgets::{Cell, Paragraph, Row, Table, Wrap};
+use std::sync::atomic::Ordering;
 
 pub fn draw_overview(
     f: &mut Frame,
@@ -113,6 +114,98 @@ fn bandwidth_line<'a>(incoming: String, outgoing: String) -> Line<'a> {
     .right_aligned()
 }
 
+fn connection_widths(show_location: bool) -> Vec<Constraint> {
+    let mut widths = vec![
+        Constraint::Length(1),
+        Constraint::Length(24),
+        Constraint::Length(20),
+        Constraint::Length(24),
+    ];
+    if show_location {
+        widths.push(Constraint::Length(5));
+    }
+    widths.extend([
+        Constraint::Length(12),
+        Constraint::Length(10),
+        Constraint::Length(18),
+        Constraint::Length(15),
+    ]);
+    widths
+}
+
+fn connection_header(show_location: bool) -> Row<'static> {
+    let mut cells = vec![
+        Cell::from(""),
+        Cell::from("Process / Protocol"),
+        Cell::from("Local Address"),
+        Cell::from("Remote Address"),
+    ];
+    if show_location {
+        cells.push(Cell::from("Loc"));
+    }
+    cells.extend([
+        Cell::from("State"),
+        Cell::from("Service"),
+        Cell::from("Application"),
+        Cell::from(Line::from("Down/Up").right_aligned()),
+    ]);
+
+    Row::new(cells)
+        .style(fg(heading()))
+        .height(1)
+        .bottom_margin(1)
+}
+
+fn display_addr(
+    conn: &Connection,
+    is_local: bool,
+    ui_state: &UIState,
+    devices: &[Device],
+    dns_resolver: Option<&crate::network::dns::DnsResolver>,
+) -> String {
+    let addr = if is_local {
+        conn.local_addr
+    } else {
+        conn.remote_addr
+    };
+    let name = if ui_state.show_hostnames {
+        devices
+            .iter()
+            .find(|d| d.ips.contains(&addr.ip()))
+            .and_then(|d| d.hostname.clone())
+            .or_else(|| dns_resolver.and_then(|r| r.get_hostname(&addr.ip())))
+    } else {
+        None
+    };
+
+    if let Some(host) = name {
+        if ui_state.show_port_numbers {
+            format!("{}:{}", host, addr.port())
+        } else {
+            host
+        }
+    } else if ui_state.show_port_numbers {
+        addr.to_string()
+    } else {
+        addr.ip().to_string()
+    }
+}
+
+fn application_label(conn: &Connection) -> String {
+    conn.dpi_info
+        .as_ref()
+        .map(|d| d.application.to_string())
+        .unwrap_or_else(|| NONE_PLACEHOLDER.to_string())
+}
+
+fn application_style(conn: &Connection) -> Style {
+    style_if_colored(fg(conn
+        .dpi_info
+        .as_ref()
+        .map(|d| dpi_color(&d.application))
+        .unwrap_or(Color::Reset)))
+}
+
 fn draw_connections_list(
     f: &mut Frame,
     ui_state: &UIState,
@@ -123,45 +216,8 @@ fn draw_connections_list(
     show_location: bool,
     click_regions: &mut ClickableRegions,
 ) {
-    let mut widths = vec![
-        Constraint::Length(1),
-        Constraint::Length(6),
-        Constraint::Length(22),
-        Constraint::Length(22),
-    ];
-    if show_location {
-        widths.push(Constraint::Length(5));
-    }
-    widths.extend([
-        Constraint::Length(12),
-        Constraint::Length(12),
-        Constraint::Length(20),
-        Constraint::Length(16),
-        Constraint::Min(20),
-    ]);
-
-    let header_style = fg(heading());
-    let mut header_cells = vec![
-        Cell::from(""),
-        Cell::from("Proto"),
-        Cell::from("Local Address"),
-        Cell::from("Remote Address"),
-    ];
-    if show_location {
-        header_cells.push(Cell::from("Loc"));
-    }
-    header_cells.extend([
-        Cell::from("State"),
-        Cell::from("Service"),
-        Cell::from("Application"),
-        Cell::from(Line::from("Bandwidth").right_aligned()),
-        Cell::from("Process"),
-    ]);
-
-    let header = Row::new(header_cells)
-        .style(header_style)
-        .height(1)
-        .bottom_margin(1);
+    let widths = connection_widths(show_location);
+    let header = connection_header(show_location);
 
     let scroll_offset = ui_state.scroll_offset;
     let visible_rows = ui_state.visible_rows.max(1);
@@ -171,56 +227,20 @@ fn draw_connections_list(
     let rows: Vec<Row> = visible_connections
         .iter()
         .map(|conn| {
-            let local_name = if ui_state.show_hostnames {
-                devices
-                    .iter()
-                    .find(|d| d.ips.contains(&conn.local_addr.ip()))
-                    .and_then(|d| d.hostname.clone())
-                    .or_else(|| dns_resolver.and_then(|r| r.get_hostname(&conn.local_addr.ip())))
-            } else {
-                None
-            };
-
-            let local_addr = if let Some(h) = local_name {
-                if ui_state.show_port_numbers {
-                    format!("{}:{}", h, conn.local_addr.port())
-                } else {
-                    h
-                }
-            } else if ui_state.show_port_numbers {
-                conn.local_addr.to_string()
-            } else {
-                conn.local_addr.ip().to_string()
-            };
-
-            let remote_name = if ui_state.show_hostnames {
-                devices
-                    .iter()
-                    .find(|d| d.ips.contains(&conn.remote_addr.ip()))
-                    .and_then(|d| d.hostname.clone())
-                    .or_else(|| dns_resolver.and_then(|r| r.get_hostname(&conn.remote_addr.ip())))
-            } else {
-                None
-            };
-
-            let remote_addr = if let Some(h) = remote_name {
-                if ui_state.show_port_numbers {
-                    format!("{}:{}", h, conn.remote_addr.port())
-                } else {
-                    h
-                }
-            } else if ui_state.show_port_numbers {
-                conn.remote_addr.to_string()
-            } else {
-                conn.remote_addr.ip().to_string()
-            };
+            let local_addr = display_addr(conn, true, ui_state, devices, dns_resolver);
+            let remote_addr = display_addr(conn, false, ui_state, devices, dns_resolver);
 
             let incoming_rate = format_rate_compact(conn.current_incoming_rate_bps);
             let outgoing_rate = format_rate_compact(conn.current_outgoing_rate_bps);
 
             let mut cells = vec![
                 status_indicator_cell(conn),
-                Cell::from(conn.protocol.to_string()).style(fg(muted())),
+                Cell::from(format!(
+                    "{} {}",
+                    conn.protocol,
+                    conn.process_name.as_deref().unwrap_or(NONE_PLACEHOLDER)
+                ))
+                .style(style_if_colored(field_process())),
                 Cell::from(local_addr).style(style_if_colored(field_local_addr())),
                 Cell::from(remote_addr).style(style_if_colored(field_remote_addr())),
             ];
@@ -236,20 +256,8 @@ fn draw_connections_list(
                 Cell::from(conn.state()).style(style_if_colored(fg(state_color(conn)))),
                 Cell::from(conn.service_name.as_deref().unwrap_or(NONE_PLACEHOLDER))
                     .style(style_if_colored(field_service())),
-                Cell::from(
-                    conn.dpi_info
-                        .as_ref()
-                        .map(|d| d.application.to_string())
-                        .unwrap_or_else(|| NONE_PLACEHOLDER.to_string()),
-                )
-                .style(style_if_colored(fg(conn
-                    .dpi_info
-                    .as_ref()
-                    .map(|d| dpi_color(&d.application))
-                    .unwrap_or(Color::Reset)))),
+                Cell::from(application_label(conn)).style(application_style(conn)),
                 Cell::from(bandwidth_line(incoming_rate, outgoing_rate)),
-                Cell::from(conn.process_name.as_deref().unwrap_or(NONE_PLACEHOLDER))
-                    .style(style_if_colored(field_process())),
             ]);
 
             Row::new(cells)
@@ -262,7 +270,7 @@ fn draw_connections_list(
     }
 
     let title = format!(" Connections ({}) ", connections.len());
-    let table = Table::new(rows, [Constraint::Min(0); 10]) // Simplified widths for now
+    let table = Table::new(rows, widths)
         .header(header)
         .block(panel_block(title))
         .row_highlight_style(row_highlight())
@@ -297,7 +305,7 @@ fn draw_grouped_connections_list(
     show_location: bool,
     click_regions: &mut ClickableRegions,
 ) {
-    let widths = [Constraint::Min(0); 10]; // Simplified widths for now
+    let widths = connection_widths(show_location);
     let scroll_offset = ui_state.grouped_scroll_offset.min(grouped_rows.len());
     let visible_rows = ui_state.visible_rows.max(1);
     let window_end = (scroll_offset + visible_rows).min(grouped_rows.len());
@@ -311,12 +319,14 @@ fn draw_grouped_connections_list(
                 stats,
                 expanded,
             } => {
-                let indicator = if *expanded { "▼" } else { "▶" };
+                let indicator = if *expanded { "[-]" } else { "[+]" };
+                let connection_count = stats.connection_count + stats.historic_count;
                 let mut cells = vec![
                     Cell::from(""),
                     Cell::from(Line::from(vec![
-                        Span::styled(format!("{} {}", indicator, process_name), bold_fg(accent())),
-                        Span::raw(format!(" ({})", stats.connection_count)),
+                        Span::styled(format!("{} ", indicator), fg(accent())),
+                        Span::styled(process_name.clone(), bold_fg(accent())),
+                        Span::raw(format!(" ({})", connection_count)),
                     ])),
                     Cell::from(""),
                     Cell::from(""),
@@ -347,53 +357,8 @@ fn draw_grouped_connections_list(
                     "  ├── "
                 };
 
-                let local_name = if ui_state.show_hostnames {
-                    devices
-                        .iter()
-                        .find(|d| d.ips.contains(&connection.local_addr.ip()))
-                        .and_then(|d| d.hostname.clone())
-                        .or_else(|| {
-                            dns_resolver.and_then(|r| r.get_hostname(&connection.local_addr.ip()))
-                        })
-                } else {
-                    None
-                };
-
-                let local_addr = if let Some(h) = local_name {
-                    if ui_state.show_port_numbers {
-                        format!("{}:{}", h, connection.local_addr.port())
-                    } else {
-                        h
-                    }
-                } else if ui_state.show_port_numbers {
-                    connection.local_addr.to_string()
-                } else {
-                    connection.local_addr.ip().to_string()
-                };
-
-                let remote_name = if ui_state.show_hostnames {
-                    devices
-                        .iter()
-                        .find(|d| d.ips.contains(&connection.remote_addr.ip()))
-                        .and_then(|d| d.hostname.clone())
-                        .or_else(|| {
-                            dns_resolver.and_then(|r| r.get_hostname(&connection.remote_addr.ip()))
-                        })
-                } else {
-                    None
-                };
-
-                let remote_addr = if let Some(h) = remote_name {
-                    if ui_state.show_port_numbers {
-                        format!("{}:{}", h, connection.remote_addr.port())
-                    } else {
-                        h
-                    }
-                } else if ui_state.show_port_numbers {
-                    connection.remote_addr.to_string()
-                } else {
-                    connection.remote_addr.ip().to_string()
-                };
+                let local_addr = display_addr(connection, true, ui_state, devices, dns_resolver);
+                let remote_addr = display_addr(connection, false, ui_state, devices, dns_resolver);
 
                 let mut cells = vec![
                     status_indicator_cell(connection),
@@ -410,8 +375,14 @@ fn draw_grouped_connections_list(
                 cells.extend([
                     Cell::from(connection.state())
                         .style(style_if_colored(fg(state_color(connection)))),
-                    Cell::from("-"),
-                    Cell::from("-"),
+                    Cell::from(
+                        connection
+                            .service_name
+                            .as_deref()
+                            .unwrap_or(NONE_PLACEHOLDER),
+                    )
+                    .style(style_if_colored(field_service())),
+                    Cell::from(application_label(connection)).style(application_style(connection)),
                     Cell::from(bandwidth_line(
                         format_rate_compact(connection.current_incoming_rate_bps),
                         format_rate_compact(connection.current_outgoing_rate_bps),
@@ -428,7 +399,16 @@ fn draw_grouped_connections_list(
     }
 
     let table = Table::new(rows, &widths)
-        .block(panel_block(" Grouped Connections "))
+        .header(connection_header(show_location))
+        .block(panel_block(format!(
+            " Grouped by Process (A-Z) | Connections: {} {} ",
+            ui_state.sort_column.display_name(),
+            if ui_state.sort_ascending {
+                "↑"
+            } else {
+                "↓"
+            }
+        )))
         .row_highlight_style(row_highlight())
         .highlight_symbol("> ");
     f.render_stateful_widget(table, area, &mut state);
@@ -437,12 +417,130 @@ fn draw_grouped_connections_list(
         horizontal: 1,
         vertical: 1,
     });
+    let header_height = 2_u16;
     for (i, row_idx) in (scroll_offset..window_end).enumerate() {
         click_regions.register(
-            Rect::new(inner.x, inner.y + i as u16, inner.width, 1),
+            Rect::new(inner.x, inner.y + header_height + i as u16, inner.width, 1),
             ClickAction::SelectConnection(row_idx),
         );
     }
+}
+
+fn push_line(lines: &mut Vec<Line<'static>>, label_text: &str, value: impl Into<String>) {
+    lines.push(Line::from(vec![
+        Span::styled(format!("{}: ", label_text), fg(label())),
+        Span::raw(value.into()),
+    ]));
+}
+
+fn push_section(lines: &mut Vec<Line<'static>>, title: &str) {
+    if !lines.is_empty() {
+        lines.push(Line::from(""));
+    }
+    lines.push(Line::from(Span::styled(
+        title.to_string(),
+        bold_fg(heading()),
+    )));
+}
+
+fn sparkline(data: &[u64], width: usize) -> String {
+    const BARS: &[char] = &['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
+    if width == 0 {
+        return String::new();
+    }
+    if data.is_empty() {
+        return "·".repeat(width.min(8));
+    }
+
+    let start = data.len().saturating_sub(width);
+    let sample = &data[start..];
+    let max = sample.iter().copied().max().unwrap_or(0);
+    if max == 0 {
+        return "▁".repeat(sample.len());
+    }
+
+    sample
+        .iter()
+        .map(|value| {
+            let idx = ((*value as usize) * (BARS.len() - 1) / max as usize).min(BARS.len() - 1);
+            BARS[idx]
+        })
+        .collect()
+}
+
+#[cfg(any(
+    target_os = "linux",
+    target_os = "windows",
+    all(target_os = "macos", feature = "macos-sandbox")
+))]
+fn sandbox_lines(lines: &mut Vec<Line<'static>>, app: &App) {
+    let sandbox = app.get_sandbox_info();
+    push_line(
+        lines,
+        "Sandbox",
+        if sandbox.status.is_empty() {
+            "Unknown".to_string()
+        } else {
+            sandbox.status
+        },
+    );
+
+    #[cfg(target_os = "linux")]
+    {
+        lines.push(Line::from(vec![
+            Span::styled("• ", fg(muted())),
+            Span::raw(format!(
+                "CAP_NET_RAW {}",
+                if sandbox.cap_dropped {
+                    "dropped"
+                } else {
+                    "available"
+                }
+            )),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("• ", fg(muted())),
+            Span::raw(format!(
+                "eBPF caps {}",
+                if sandbox.ebpf_caps_dropped {
+                    "dropped"
+                } else {
+                    "available"
+                }
+            )),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("• ", fg(muted())),
+            Span::raw(format!(
+                "FS {}",
+                if sandbox.fs_restricted {
+                    "restricted"
+                } else {
+                    "unrestricted"
+                }
+            )),
+        ]));
+        lines.push(Line::from(vec![
+            Span::styled("• ", fg(muted())),
+            Span::raw(format!(
+                "Net {}",
+                if sandbox.net_restricted {
+                    "blocked"
+                } else {
+                    "allowed"
+                }
+            )),
+        ]));
+    }
+}
+
+#[cfg(not(any(
+    target_os = "linux",
+    target_os = "windows",
+    all(target_os = "macos", feature = "macos-sandbox")
+)))]
+fn sandbox_lines(lines: &mut Vec<Line<'static>>, _app: &App) {
+    push_line(lines, "Sandbox", "Unavailable");
 }
 
 fn draw_stats_panel(
@@ -457,26 +555,146 @@ fn draw_stats_panel(
     f.render_widget(block, area);
 
     let active_count = connections.iter().filter(|c| !c.is_historic).count();
-    let packets = stats
-        .packets_processed
-        .load(std::sync::atomic::Ordering::Relaxed);
-
-    let mut lines = vec![
-        Line::from(Span::styled("Statistics", bold_fg(heading()))),
-        Line::from(format!(
-            "Interface: {}",
-            app.get_current_interface()
-                .unwrap_or_else(|| "-".to_string())
-        )),
-        Line::from(format!("Connections: {}", active_count)),
-        Line::from(format!("Packets: {}", packets)),
-        Line::from(""),
-        Line::from(Span::styled("Network Health", bold_fg(heading()))),
-    ];
-
+    let tcp_count = connections
+        .iter()
+        .filter(|c| c.protocol == Protocol::Tcp && !c.is_historic)
+        .count();
+    let udp_count = connections
+        .iter()
+        .filter(|c| c.protocol == Protocol::Udp && !c.is_historic)
+        .count();
+    let active_tcp_flows = connections
+        .iter()
+        .filter(|c| {
+            c.protocol == Protocol::Tcp
+                && !c.is_historic
+                && !matches!(
+                    c.protocol_state,
+                    ProtocolState::Tcp(TcpState::Closed | TcpState::TimeWait)
+                )
+        })
+        .count();
+    let packets = stats.packets_processed.load(Ordering::Relaxed);
+    let dropped = stats.packets_dropped.load(Ordering::Relaxed);
+    let retransmits = stats.total_tcp_retransmits.load(Ordering::Relaxed);
+    let out_of_order = stats.total_tcp_out_of_order.load(Ordering::Relaxed);
+    let fast_retransmits = stats.total_tcp_fast_retransmits.load(Ordering::Relaxed);
+    let process_status = app.get_process_detection_status();
+    let (link_layer, is_tunnel) = app.get_link_layer_info();
     let history = app.get_traffic_history();
-    let rx = format_rate(history.get_latest_packets_per_sec() as f64);
-    lines.push(Line::from(format!("Traffic: {}", rx)));
+    let interface = app
+        .get_current_interface()
+        .unwrap_or_else(|| "-".to_string());
+    let sorted_interfaces = app.get_sorted_interface_stats();
+    let current_interface_stats = sorted_interfaces
+        .iter()
+        .find(|stat| stat.interface_name == interface)
+        .or_else(|| sorted_interfaces.first());
+    let interface_rates = app.get_interface_rates();
+    let current_rates = interface_rates.get(&interface);
+    let rx_rate = current_rates
+        .map(|rates| rates.rx_bytes_per_sec as f64)
+        .unwrap_or_else(|| {
+            history
+                .get_rx_sparkline_data(1)
+                .last()
+                .copied()
+                .unwrap_or(0) as f64
+        });
+    let tx_rate = current_rates
+        .map(|rates| rates.tx_bytes_per_sec as f64)
+        .unwrap_or_else(|| {
+            history
+                .get_tx_sparkline_data(1)
+                .last()
+                .copied()
+                .unwrap_or(0) as f64
+        });
+
+    let mut lines = Vec::new();
+    push_section(&mut lines, "Statistics");
+    push_line(&mut lines, "Interface", interface.clone());
+    push_line(
+        &mut lines,
+        "Link Layer",
+        if is_tunnel {
+            format!("{} tunnel", link_layer)
+        } else {
+            link_layer
+        },
+    );
+    push_line(
+        &mut lines,
+        "Process Detection",
+        if process_status.is_degraded {
+            format!(
+                "{} degraded ({})",
+                process_status.method,
+                process_status
+                    .unavailable_feature
+                    .as_deref()
+                    .unwrap_or("feature unavailable")
+            )
+        } else {
+            process_status.method
+        },
+    );
+    if let Some(reason) = process_status.degradation_reason {
+        lines.push(Line::from(Span::styled(reason, fg(warn()))));
+    }
+
+    push_section(&mut lines, "Connections");
+    push_line(&mut lines, "TCP", tcp_count.to_string());
+    push_line(&mut lines, "UDP", udp_count.to_string());
+    push_line(&mut lines, "Total", active_count.to_string());
+    push_line(&mut lines, "Packets", packets.to_string());
+    push_line(
+        &mut lines,
+        "Packets/sec",
+        history.get_latest_packets_per_sec().to_string(),
+    );
+    push_line(&mut lines, "Dropped", dropped.to_string());
+
+    push_section(&mut lines, "Network Stats");
+    push_line(&mut lines, "TCP Retransmits", retransmits.to_string());
+    push_line(&mut lines, "Out-of-Order", out_of_order.to_string());
+    push_line(&mut lines, "Fast Retransmits", fast_retransmits.to_string());
+    push_line(&mut lines, "Active TCP Flows", active_tcp_flows.to_string());
+
+    push_section(&mut lines, "Security");
+    sandbox_lines(&mut lines, app);
+
+    push_section(&mut lines, "Traffic");
+    let spark_width = inner.width.saturating_sub(3).clamp(8, 48) as usize;
+    lines.push(Line::from(vec![
+        Span::styled("RX ", fg(rx())),
+        Span::raw(sparkline(
+            &history.get_rx_sparkline_data(spark_width),
+            spark_width,
+        )),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("TX ", fg(tx())),
+        Span::raw(sparkline(
+            &history.get_tx_sparkline_data(spark_width),
+            spark_width,
+        )),
+    ]));
+    lines.push(Line::from(vec![
+        Span::styled("↓", fg(rx())),
+        Span::raw(format_rate(rx_rate)),
+        Span::raw(" "),
+        Span::styled("↑", fg(tx())),
+        Span::raw(format_rate(tx_rate)),
+    ]));
+    if let Some(stat) = current_interface_stats {
+        lines.push(Line::from(format!(
+            "{}: Err {} Drop {}",
+            stat.interface_name,
+            stat.rx_errors + stat.tx_errors,
+            stat.rx_dropped + stat.tx_dropped
+        )));
+    }
 
     f.render_widget(Paragraph::new(lines).wrap(Wrap { trim: true }), inner);
     Ok(())
