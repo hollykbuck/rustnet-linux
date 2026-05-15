@@ -930,29 +930,35 @@ impl UIState {
         if rows.is_empty() {
             return None;
         }
-        if let Some(ref k) = self.selected_connection_key
-            && let Some(p) = rows.iter().position(|r| {
-                if let GroupedRow::Connection { connection, .. } = r {
-                    connection.key() == *k
-                } else {
-                    false
-                }
-            })
-        {
+        if let Some(p) = self.get_selected_grouped_connection_index(rows) {
             return Some(p);
         }
-        if let Some(ref g) = self.selected_group
-            && let Some(p) = rows.iter().position(|r| {
-                if let GroupedRow::Group { process_name, .. } = r {
-                    process_name == g
-                } else {
-                    false
-                }
-            })
-        {
+        if let Some(p) = self.get_selected_grouped_group_index(rows) {
             return Some(p);
         }
         Some(0)
+    }
+
+    fn get_selected_grouped_connection_index(&self, rows: &[GroupedRow]) -> Option<usize> {
+        let key = self.selected_connection_key.as_ref()?;
+        rows.iter().position(|row| {
+            if let GroupedRow::Connection { connection, .. } = row {
+                connection.key() == *key
+            } else {
+                false
+            }
+        })
+    }
+
+    fn get_selected_grouped_group_index(&self, rows: &[GroupedRow]) -> Option<usize> {
+        let group = self.selected_group.as_ref()?;
+        rows.iter().position(|row| {
+            if let GroupedRow::Group { process_name, .. } = row {
+                process_name == group
+            } else {
+                false
+            }
+        })
     }
 
     pub fn get_selected_service_grouped_index(&self, rows: &[ServiceGroupedRow]) -> Option<usize> {
@@ -1086,11 +1092,24 @@ impl UIState {
     }
 
     pub fn ensure_valid_grouped_selection(&mut self, rows: &[GroupedRow]) {
-        if (self.selected_group.is_none() || self.get_selected_grouped_index(rows).is_none())
-            && !rows.is_empty()
-        {
-            self.set_selected_grouped_by_index(rows, 0);
+        if rows.is_empty() {
+            self.selected_group = None;
+            self.selected_connection_key = None;
+            self.grouped_scroll_offset = 0;
+            self.show_connection_modal = false;
+            return;
         }
+
+        if self.get_selected_grouped_connection_index(rows).is_some() {
+            return;
+        }
+
+        if self.get_selected_grouped_group_index(rows).is_some() {
+            self.selected_connection_key = None;
+            return;
+        }
+
+        self.set_selected_grouped_by_index(rows, 0);
     }
 
     pub fn ensure_valid_service_selection(

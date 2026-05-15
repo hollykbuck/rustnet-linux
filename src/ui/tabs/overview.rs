@@ -295,10 +295,15 @@ fn draw_grouped_connections_list(
     area: Rect,
     dns_resolver: Option<&crate::network::dns::DnsResolver>,
     show_location: bool,
-    _click_regions: &mut ClickableRegions,
+    click_regions: &mut ClickableRegions,
 ) {
     let widths = [Constraint::Min(0); 10]; // Simplified widths for now
-    let rows: Vec<Row> = grouped_rows
+    let scroll_offset = ui_state.grouped_scroll_offset.min(grouped_rows.len());
+    let visible_rows = ui_state.visible_rows.max(1);
+    let window_end = (scroll_offset + visible_rows).min(grouped_rows.len());
+    let visible_grouped_rows = &grouped_rows[scroll_offset..window_end];
+
+    let rows: Vec<Row> = visible_grouped_rows
         .iter()
         .map(|row| match row {
             GroupedRow::Group {
@@ -419,7 +424,7 @@ fn draw_grouped_connections_list(
 
     let mut state = ratatui::widgets::TableState::default();
     if let Some(idx) = ui_state.get_selected_grouped_index(grouped_rows) {
-        state.select(Some(idx.saturating_sub(ui_state.grouped_scroll_offset)));
+        state.select(Some(idx.saturating_sub(scroll_offset)));
     }
 
     let table = Table::new(rows, &widths)
@@ -427,6 +432,17 @@ fn draw_grouped_connections_list(
         .row_highlight_style(row_highlight())
         .highlight_symbol("> ");
     f.render_stateful_widget(table, area, &mut state);
+
+    let inner = area.inner(Margin {
+        horizontal: 1,
+        vertical: 1,
+    });
+    for (i, row_idx) in (scroll_offset..window_end).enumerate() {
+        click_regions.register(
+            Rect::new(inner.x, inner.y + i as u16, inner.width, 1),
+            ClickAction::SelectConnection(row_idx),
+        );
+    }
 }
 
 fn draw_stats_panel(
