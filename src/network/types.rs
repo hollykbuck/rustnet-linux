@@ -198,10 +198,11 @@ impl fmt::Display for TcpState {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ProtocolState {
     Tcp(TcpState),
     Udp,
+    Quic,
     Icmp {
         icmp_type: u8,
         icmp_id: Option<u16>,
@@ -2144,6 +2145,7 @@ impl Connection {
                 NdpOperation::RouterAdvertisement => Cow::Borrowed("NDP_ROUTER_ADV"),
                 NdpOperation::Redirect => Cow::Borrowed("NDP_REDIRECT"),
             },
+            ProtocolState::Quic => Cow::Borrowed("QUIC"),
         }
     }
 
@@ -2211,6 +2213,7 @@ impl Connection {
             ProtocolState::Igmp { .. } => Duration::from_secs(10),
             ProtocolState::Arp(_) => Duration::from_secs(30),
             ProtocolState::Ndp(_) => Duration::from_secs(30),
+            ProtocolState::Quic => Duration::from_secs(30),
         }
     }
 

@@ -104,11 +104,15 @@ pub fn draw_help(f: &mut Frame, area: Rect) -> anyhow::Result<()> {
         Line::from(vec![Span::styled("Tabs:", bold_fg(accent()))]),
         Line::from(vec![
             Span::styled("  Overview ", fg(ok())),
-            Span::raw("Connection list with mini traffic graph"),
+            Span::raw("Connection list (double-click/Enter for details)"),
         ]),
         Line::from(vec![
-            Span::styled("  Details ", fg(ok())),
-            Span::raw("Full details for selected connection"),
+            Span::styled("  Devices ", fg(ok())),
+            Span::raw("Local network device discovery"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Services ", fg(ok())),
+            Span::raw("Active listening sockets on this system"),
         ]),
         Line::from(vec![
             Span::styled("  Interfaces ", fg(ok())),

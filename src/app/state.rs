@@ -1,276 +1,135 @@
 use dashmap::DashMap;
-use log::debug;
 use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, LazyLock, Mutex};
-use std::time::{Duration, SystemTime};
+use std::time::{Duration, SystemTime, Instant};
 
 use crate::app::logging::log_connection_event;
 use crate::app::types::AppStats;
-use crate::network::bogon::{Scope, classify};
+use crate::network::bogon::{classify, Scope};
 use crate::network::dns::DnsResolver;
-use crate::network::merge::{create_connection_from_packet, merge_packet_into_connection};
 use crate::network::oui::OuiLookup;
 use crate::network::parser::ParsedPacket;
 use crate::network::types::{
-    ApplicationProtocol, ArpOperation, Connection, ConnectionKey, Device, Protocol, ProtocolState,
-    RttTracker,
+    ApplicationProtocol, ArpOperation, Connection, Device, NdpOperation, Protocol, ProtocolState,
+    DpiInfo,
 };
 
-pub fn sort_listeners(
-    listeners: &mut [crate::network::types::Listener],
-    column: crate::ui::ServiceSortColumn,
-    ascending: bool,
-) {
-    use crate::ui::ServiceSortColumn;
-
-    listeners.sort_by(|a, b| {
-        let (ord, default_asc) = match column {
-            ServiceSortColumn::Protocol => (a.protocol.cmp(&b.protocol), true),
-            ServiceSortColumn::LocalAddress => (a.local_addr.cmp(&b.local_addr), true),
-            ServiceSortColumn::Service => (a.service_name.cmp(&b.service_name), true),
-            ServiceSortColumn::Process => (a.process_name.cmp(&b.process_name), true),
-            ServiceSortColumn::Connections => (a.active_connections.cmp(&b.active_connections), false),
-        };
-        if ascending == default_asc {
-            ord
-        } else {
-            ord.reverse()
-        }
-    });
-}
-
-pub fn sort_devices(
-    devices: &mut [Device],
-    column: crate::ui::DeviceSortColumn,
-    ascending: bool,
-) {
-    use crate::ui::DeviceSortColumn;
-
-    devices.sort_by(|a, b| {
-        let ordering = match column {
-            DeviceSortColumn::Status => a.is_online.cmp(&b.is_online),
-            DeviceSortColumn::IpAddress => a.primary_ip().cmp(&b.primary_ip()),
-            DeviceSortColumn::Hostname => a.hostname.cmp(&b.hostname),
-            DeviceSortColumn::MacAddress => a.mac.cmp(&b.mac),
-            DeviceSortColumn::Vendor => a.vendor.cmp(&b.vendor),
-            DeviceSortColumn::LastSeen => a.last_seen.cmp(&b.last_seen),
-            DeviceSortColumn::BytesReceived => a.bytes_received.cmp(&b.bytes_received),
-            DeviceSortColumn::BytesSent => a.bytes_sent.cmp(&b.bytes_sent),
-        };
-
-        if ascending {
-            ordering
-        } else {
-            ordering.reverse()
-        }
-    });
-}
-
-/// Sort connections based on the specified column and direction
-pub fn sort_connections(
-    connections: &mut [Connection],
-    sort_column: crate::ui::SortColumn,
-    ascending: bool,
-) {
-    use crate::ui::SortColumn;
-
-    connections.sort_by(|a, b| {
-        let ordering = match sort_column {
-            SortColumn::CreatedAt => a.created_at.cmp(&b.created_at),
-
-            SortColumn::BandwidthTotal => {
-                // Compare combined up+down bandwidth, handle NaN cases
-                let a_total = a.current_incoming_rate_bps + a.current_outgoing_rate_bps;
-                let b_total = b.current_incoming_rate_bps + b.current_outgoing_rate_bps;
-                a_total
-                    .partial_cmp(&b_total)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            }
-
-            SortColumn::Process => {
-                let a_process = a.process_name.as_deref().unwrap_or("");
-                let b_process = b.process_name.as_deref().unwrap_or("");
-                a_process.cmp(b_process)
-            }
-
-            SortColumn::LocalAddress => a
-                .local_addr
-                .ip()
-                .cmp(&b.local_addr.ip())
-                .then_with(|| a.local_addr.port().cmp(&b.local_addr.port())),
-
-            SortColumn::RemoteAddress => a
-                .remote_addr
-                .ip()
-                .cmp(&b.remote_addr.ip())
-                .then_with(|| a.remote_addr.port().cmp(&b.remote_addr.port())),
-
-            SortColumn::Application => {
-                let a_app = a.dpi_info.as_ref().map(|dpi| dpi.application.sort_key());
-                let b_app = b.dpi_info.as_ref().map(|dpi| dpi.application.sort_key());
-                a_app.cmp(&b_app)
-            }
-
-            SortColumn::Service => {
-                let a_service = a.service_name.as_deref().unwrap_or("");
-                let b_service = b.service_name.as_deref().unwrap_or("");
-                a_service.cmp(b_service)
-            }
-
-            SortColumn::State => Ord::cmp(&a.state(), &b.state()),
-
-            SortColumn::Location => {
-                let a_loc = a
-                    .geoip_info
-                    .as_ref()
-                    .and_then(|g| g.country_code.as_deref())
-                    .unwrap_or("");
-                let b_loc = b
-                    .geoip_info
-                    .as_ref()
-                    .and_then(|g| g.country_code.as_deref())
-                    .unwrap_or("");
-                a_loc.cmp(b_loc)
-            }
-
-            SortColumn::Protocol => a.protocol.cmp(&b.protocol),
-        };
-
-        if ascending {
-            ordering
-        } else {
-            ordering.reverse()
-        }
-    });
-}
-
-/// Global QUIC connection ID to connection key mapping
-/// This allows tracking QUIC connections across connection ID changes
-pub static QUIC_CONNECTION_MAPPING: LazyLock<Mutex<HashMap<String, String>>> =
+/// Global mapping for QUIC connection IDs to connection keys.
+/// Used to track QUIC connections as they migrate across client IP/port changes.
+pub static QUIC_CONNECTION_MAPPING: LazyLock<Mutex<HashMap<Vec<u8>, String>>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
-/// Maximum QUIC connection ID mappings to prevent unbounded growth.
-pub const MAX_QUIC_MAPPINGS: usize = 10_000;
-
-/// Maximum tracked connections to prevent memory exhaustion from port scans
-/// or connection floods.
-pub const MAX_CONNECTIONS: usize = 50_000;
-
-/// Update or create a connection from a parsed packet
+/// Update connection state based on a parsed packet
 pub fn update_connection(
     connections: &DashMap<String, Connection>,
     parsed: ParsedPacket,
     stats: &AppStats,
     json_log_path: &Option<String>,
-    rtt_tracker: &Arc<Mutex<RttTracker>>,
+    _rtt_tracker: &Arc<Mutex<crate::network::types::RttTracker>>,
     dns_resolver: Option<&DnsResolver>,
 ) {
-    let mut key = parsed.connection_key.clone();
+    let key = parsed.connection_key.clone();
     let now = SystemTime::now();
+    let instant_now = Instant::now();
 
-    // Track RTT for TCP connections using SYN/SYN-ACK timing
-    let mut measured_rtt: Option<std::time::Duration> = None;
-    if parsed.protocol == Protocol::Tcp
-        && let Some(tcp_header) = &parsed.tcp_header
+    // Special handling for QUIC: check for connection migration via CID
+    // We check if DPI identified QUIC and use its CID if available
+    let final_key = if let Some(ref dpi) = parsed.dpi_result 
+        && let ApplicationProtocol::Quic(ref info) = dpi.application 
     {
-        let conn_key = ConnectionKey::new(parsed.local_addr, parsed.remote_addr);
+        let mut mapping = QUIC_CONNECTION_MAPPING.lock().unwrap();
+        let mut resolved_key = key.clone();
 
-        if tcp_header.flags.syn && !tcp_header.flags.ack {
-            // This is a SYN packet (outgoing connection initiation)
-            if let Ok(mut tracker) = rtt_tracker.lock() {
-                tracker.record_syn(conn_key);
-            }
-        } else if tcp_header.flags.syn && tcp_header.flags.ack {
-            // This is a SYN-ACK packet (connection response)
-            if let Ok(mut tracker) = rtt_tracker.lock() {
-                measured_rtt = tracker.record_syn_ack(&conn_key);
-            }
+        // Try to match CID first (we'll just use connection_id as destination CID for now)
+        if let Some(existing_key) = mapping.get(&info.connection_id) {
+            resolved_key = existing_key.clone();
         }
-    }
 
-    // For QUIC packets, check if we have a connection ID mapping
-    if parsed.protocol == Protocol::Udp
-        && let Some(dpi_result) = &parsed.dpi_result
-        && let ApplicationProtocol::Quic(quic_info) = &dpi_result.application
-        && let Some(conn_id_hex) = &quic_info.connection_id_hex
-        && let Ok(mut mapping) = QUIC_CONNECTION_MAPPING.lock()
-    {
-        if let Some(existing_key) = mapping.get(conn_id_hex) {
-            key = existing_key.clone();
-            debug!(
-                "QUIC: Using existing connection key {} for Connection ID {}",
-                key, conn_id_hex
-            );
-        } else {
-            // Prevent unbounded growth of QUIC connection ID mappings
-            if mapping.len() >= MAX_QUIC_MAPPINGS {
-                debug!("QUIC mapping limit reached, clearing old entries");
-                mapping.clear();
-            }
-            // New QUIC connection ID, create mapping
-            mapping.insert(conn_id_hex.clone(), key.clone());
-            debug!(
-                "QUIC: Created new mapping {} -> {} for Connection ID {}",
-                conn_id_hex, key, conn_id_hex
-            );
-        }
-    }
-
-    // Prevent unbounded growth from port scans or connection floods.
-    // Only limit new connections; existing ones always get updated.
-    if !connections.contains_key(&key) && connections.len() >= MAX_CONNECTIONS {
-        debug!(
-            "Connection limit reached ({}), dropping new connection: {}",
-            MAX_CONNECTIONS, key
-        );
-        return;
-    }
+        // Register CID for this connection key
+        mapping.insert(info.connection_id.clone(), resolved_key.clone());
+        resolved_key
+    } else {
+        key
+    };
 
     connections
-        .entry(key.clone())
-        .and_modify(|conn| {
-            let (new_retransmits, new_out_of_order, new_fast_retransmits) =
-                merge_packet_into_connection(conn, &parsed, now);
-
-            // Store RTT measurement if we got one from SYN-ACK
-            if let Some(rtt) = measured_rtt
-                && conn.initial_rtt.is_none()
-            {
-                conn.initial_rtt = Some(rtt);
-                debug!("RTT measured for {}: {:?}", key, rtt);
+        .entry(final_key)
+        .and_modify(|c| {
+            // Update stats
+            if parsed.is_outgoing {
+                c.bytes_sent += parsed.packet_len as u64;
+                c.packets_sent += 1;
+            } else {
+                c.bytes_received += parsed.packet_len as u64;
+                c.packets_received += 1;
             }
 
-            // Update global statistics
-            if new_retransmits > 0 {
-                stats
-                    .total_tcp_retransmits
-                    .fetch_add(new_retransmits, Ordering::Relaxed);
+            c.last_activity = now;
+
+            // Update state (TCP, etc.)
+            let old_state = c.protocol_state.clone();
+            c.protocol_state = parsed.protocol_state.clone();
+
+            // Log state transitions
+            if old_state != c.protocol_state {
+                if let Some(log_path) = json_log_path {
+                    log_connection_event(log_path, "state_change", c, None, dns_resolver);
+                }
             }
-            if new_out_of_order > 0 {
-                stats
-                    .total_tcp_out_of_order
-                    .fetch_add(new_out_of_order, Ordering::Relaxed);
-            }
-            if new_fast_retransmits > 0 {
-                stats
-                    .total_tcp_fast_retransmits
-                    .fetch_add(new_fast_retransmits, Ordering::Relaxed);
+
+            // Update DPI info if available
+            if let Some(ref dpi) = parsed.dpi_result {
+                c.dpi_info = Some(DpiInfo {
+                    application: dpi.application.clone(),
+                    last_update_time: instant_now,
+                });
             }
         })
         .or_insert_with(|| {
-            debug!("New connection detected: {}", key);
-            let mut conn = create_connection_from_packet(&parsed, now);
+            // Log new connection
+            stats.connections_tracked.fetch_add(1, Ordering::Relaxed);
 
-            // Store RTT measurement if we got one (unlikely for new connection, but handle it)
-            if let Some(rtt) = measured_rtt {
-                conn.initial_rtt = Some(rtt);
-            }
+            let conn = Connection {
+                protocol: parsed.protocol,
+                local_addr: parsed.local_addr,
+                remote_addr: parsed.remote_addr,
+                protocol_state: parsed.protocol_state,
+                pid: parsed.process_id,
+                process_name: parsed.process_name,
+                connection_direction: Some(parsed.is_outgoing),
+                bytes_sent: if parsed.is_outgoing {
+                    parsed.packet_len as u64
+                } else {
+                    0
+                },
+                bytes_received: if parsed.is_outgoing {
+                    0
+                } else {
+                    parsed.packet_len as u64
+                },
+                packets_sent: if parsed.is_outgoing { 1 } else { 0 },
+                packets_received: if parsed.is_outgoing { 0 } else { 1 },
+                created_at: now,
+                last_activity: now,
+                closed_at: None,
+                service_name: None,
+                dpi_info: parsed.dpi_result.map(|d| DpiInfo {
+                    application: d.application,
+                    last_update_time: instant_now,
+                }),
+                geoip_info: None,
+                is_historic: false,
+                current_incoming_rate_bps: 0.0,
+                current_outgoing_rate_bps: 0.0,
+                rate_tracker: crate::network::types::RateTracker::new(),
+                tcp_analytics: None,
+                initial_rtt: None,
+            };
 
-            // Log new connection event if JSON logging is enabled
             if let Some(log_path) = json_log_path {
-                log_connection_event(log_path, "new_connection", &conn, None, dns_resolver);
+                log_connection_event(log_path, "connection_new", &conn, None, dns_resolver);
             }
 
             conn
@@ -294,7 +153,7 @@ pub fn update_device(
 
     // Helper to update or create a device entry.
     // `force` bypasses the scope check (used for explicit ARP mappings).
-    let upsert_device = |ip: IpAddr, mac: Option<String>, is_sent: bool, force: bool| {
+    let mut upsert_device = |ip: IpAddr, mac: Option<String>, is_sent: bool, force: bool| {
         // Skip multicast and broadcast IPs
         if ip.is_multicast() || ip.is_unspecified() {
             return;
@@ -345,9 +204,11 @@ pub fn update_device(
 
                 // Update open ports and discovery details
                 if let Some(ref dpi) = parsed.dpi_result {
+                    let mut name_from_protocol = None;
                     let detail = match &dpi.application {
                         ApplicationProtocol::NetBios(info) => {
                             if let Some(name) = &info.name {
+                                name_from_protocol = Some(name.clone());
                                 format!("NetBIOS:{}", name)
                             } else {
                                 "NetBIOS".to_string()
@@ -355,6 +216,7 @@ pub fn update_device(
                         }
                         ApplicationProtocol::Mdns(info) => {
                             if let Some(name) = &info.query_name {
+                                name_from_protocol = Some(name.clone());
                                 format!("mDNS:{}", name)
                             } else {
                                 "mDNS".to_string()
@@ -362,6 +224,7 @@ pub fn update_device(
                         }
                         ApplicationProtocol::Dhcp(info) => {
                             if let Some(host) = &info.hostname {
+                                name_from_protocol = Some(host.clone());
                                 format!("DHCP:{}", host)
                             } else {
                                 "DHCP".to_string()
@@ -376,6 +239,13 @@ pub fn update_device(
                         }
                         _ => String::new(),
                     };
+
+                    if let Some(name) = name_from_protocol {
+                        if d.hostname.is_none() {
+                            d.hostname = Some(name);
+                        }
+                    }
+
                     if !detail.is_empty() {
                         d.discovery_details.insert(detail);
                     }
@@ -405,10 +275,13 @@ pub fn update_device(
                 let mut ips = std::collections::HashSet::new();
                 ips.insert(ip);
 
+                let mut hostname = None;
                 if let Some(ref dpi) = parsed.dpi_result {
+                    let mut name_from_protocol = None;
                     let detail = match &dpi.application {
                         ApplicationProtocol::NetBios(info) => {
                             if let Some(name) = &info.name {
+                                name_from_protocol = Some(name.clone());
                                 format!("NetBIOS:{}", name)
                             } else {
                                 "NetBIOS".to_string()
@@ -416,6 +289,7 @@ pub fn update_device(
                         }
                         ApplicationProtocol::Mdns(info) => {
                             if let Some(name) = &info.query_name {
+                                name_from_protocol = Some(name.clone());
                                 format!("mDNS:{}", name)
                             } else {
                                 "mDNS".to_string()
@@ -423,6 +297,7 @@ pub fn update_device(
                         }
                         ApplicationProtocol::Dhcp(info) => {
                             if let Some(host) = &info.hostname {
+                                name_from_protocol = Some(host.clone());
                                 format!("DHCP:{}", host)
                             } else {
                                 "DHCP".to_string()
@@ -437,6 +312,9 @@ pub fn update_device(
                         }
                         _ => String::new(),
                     };
+
+                    hostname = name_from_protocol;
+
                     if !detail.is_empty() {
                         discovery_details.insert(detail);
                     }
@@ -455,7 +333,7 @@ pub fn update_device(
                     ips,
                     mac: mac_addr,
                     vendor,
-                    hostname: None, // Will be filled by background refresh if possible
+                    hostname,
                     first_seen: now,
                     last_seen: now,
                     bytes_sent: if is_sent { parsed.packet_len as u64 } else { 0 },
@@ -485,7 +363,7 @@ pub fn update_device(
         }
 
         // For Neighbor Advertisement, the target address binding is definitive
-        if ndp.operation == crate::network::types::NdpOperation::NeighborAdvertisement {
+        if ndp.operation == NdpOperation::NeighborAdvertisement {
             if let Some(target_mac) = &ndp.target_mac {
                 upsert_device(ndp.target_ip, Some(target_mac.clone()), false, true);
             }
@@ -521,4 +399,91 @@ pub fn update_device(
             );
         }
     }
+}
+
+/// Sort listeners based on specified criteria
+pub fn sort_listeners(
+    listeners: &mut [crate::network::types::Listener],
+    column: crate::ui::ServiceSortColumn,
+    ascending: bool,
+) {
+    use crate::ui::ServiceSortColumn;
+
+    listeners.sort_by(|a, b| {
+        let (ord, default_asc) = match column {
+            ServiceSortColumn::Protocol => (a.protocol.cmp(&b.protocol), true),
+            ServiceSortColumn::LocalAddress => (a.local_addr.cmp(&b.local_addr), true),
+            ServiceSortColumn::Service => (a.service_name.cmp(&b.service_name), true),
+            ServiceSortColumn::Process => (a.process_name.cmp(&b.process_name), true),
+            ServiceSortColumn::Connections => (a.active_connections.cmp(&b.active_connections), false),
+        };
+        if ascending == default_asc {
+            ord
+        } else {
+            ord.reverse()
+        }
+    });
+}
+
+/// Sort devices based on specified criteria
+pub fn sort_devices(
+    devices: &mut [Device],
+    column: crate::ui::DeviceSortColumn,
+    ascending: bool,
+) {
+    use crate::ui::DeviceSortColumn;
+
+    devices.sort_by(|a, b| {
+        let ordering = match column {
+            DeviceSortColumn::Status => a.is_online.cmp(&b.is_online),
+            DeviceSortColumn::IpAddress => a.primary_ip().cmp(&b.primary_ip()),
+            DeviceSortColumn::Hostname => a.hostname.cmp(&b.hostname),
+            DeviceSortColumn::MacAddress => a.mac.cmp(&b.mac),
+            DeviceSortColumn::Vendor => a.vendor.cmp(&b.vendor),
+            DeviceSortColumn::LastSeen => a.last_seen.cmp(&b.last_seen),
+            DeviceSortColumn::BytesReceived => a.bytes_received.cmp(&b.bytes_received),
+            DeviceSortColumn::BytesSent => a.bytes_sent.cmp(&b.bytes_sent),
+        };
+
+        if ascending {
+            ordering
+        } else {
+            ordering.reverse()
+        }
+    });
+}
+
+/// Sort connections based on the specified column and direction
+pub fn sort_connections(
+    connections: &mut [Connection],
+    sort_column: crate::ui::SortColumn,
+    ascending: bool,
+) {
+    use crate::ui::SortColumn;
+
+    connections.sort_by(|a, b| {
+        let ordering = match sort_column {
+            SortColumn::CreatedAt => a.created_at.cmp(&b.created_at),
+            SortColumn::BandwidthTotal => (a.bytes_sent + a.bytes_received)
+                .cmp(&(b.bytes_sent + b.bytes_received)),
+            SortColumn::Process => a.process_name.cmp(&b.process_name),
+            SortColumn::LocalAddress => a.local_addr.cmp(&b.local_addr),
+            SortColumn::RemoteAddress => a.remote_addr.cmp(&b.remote_addr),
+            SortColumn::Location => a.geoip_info.as_ref().map(|g| &g.country_code).cmp(&b.geoip_info.as_ref().map(|g| &g.country_code)),
+            SortColumn::Application => {
+                let a_app = a.dpi_info.as_ref().map(|d| d.application.to_string());
+                let b_app = b.dpi_info.as_ref().map(|d| d.application.to_string());
+                a_app.cmp(&b_app)
+            }
+            SortColumn::Service => a.service_name.cmp(&b.service_name),
+            SortColumn::State => a.state().cmp(&b.state()),
+            SortColumn::Protocol => a.protocol.cmp(&b.protocol),
+        };
+
+        if ascending {
+            ordering
+        } else {
+            ordering.reverse()
+        }
+    });
 }

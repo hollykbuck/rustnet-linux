@@ -1,5 +1,5 @@
 use crate::app::{App, AppStats};
-use crate::network::types::{ApplicationProtocol, Connection, Protocol, ProtocolState, TcpState};
+use crate::network::types::{ApplicationProtocol, Connection, Device, Protocol, ProtocolState, TcpState};
 use crate::ui::*;
 use ratatui::widgets::{Cell, Paragraph, Row, Table, Wrap};
 
@@ -9,6 +9,7 @@ pub fn draw_overview(
     ui_state: &UIState,
     connections: &[Connection],
     grouped_rows: Option<&[GroupedRow]>,
+    devices: &[Device],
     stats: &AppStats,
     area: Rect,
     click_regions: &mut ClickableRegions,
@@ -26,6 +27,7 @@ pub fn draw_overview(
             f,
             ui_state,
             grouped,
+            devices,
             chunks[0],
             dns_resolver.as_deref(),
             has_country_db,
@@ -36,6 +38,7 @@ pub fn draw_overview(
             f,
             ui_state,
             connections,
+            devices,
             chunks[0],
             dns_resolver.as_deref(),
             has_country_db,
@@ -112,6 +115,7 @@ fn draw_connections_list(
     f: &mut Frame,
     ui_state: &UIState,
     connections: &[Connection],
+    devices: &[Device],
     area: Rect,
     dns_resolver: Option<&crate::network::dns::DnsResolver>,
     show_location: bool,
@@ -165,9 +169,19 @@ fn draw_connections_list(
     let rows: Vec<Row> = visible_connections
         .iter()
         .map(|conn| {
-            let local_addr = if ui_state.show_hostnames
-                && let Some(h) = dns_resolver.and_then(|r| r.get_hostname(&conn.local_addr.ip()))
-            {
+            let local_name = if ui_state.show_hostnames {
+                devices
+                    .iter()
+                    .find(|d| d.ips.contains(&conn.local_addr.ip()))
+                    .and_then(|d| d.hostname.clone())
+                    .or_else(|| {
+                        dns_resolver.and_then(|r| r.get_hostname(&conn.local_addr.ip()))
+                    })
+            } else {
+                None
+            };
+
+            let local_addr = if let Some(h) = local_name {
                 if ui_state.show_port_numbers {
                     format!("{}:{}", h, conn.local_addr.port())
                 } else {
@@ -179,9 +193,19 @@ fn draw_connections_list(
                 conn.local_addr.ip().to_string()
             };
 
-            let remote_addr = if ui_state.show_hostnames
-                && let Some(h) = dns_resolver.and_then(|r| r.get_hostname(&conn.remote_addr.ip()))
-            {
+            let remote_name = if ui_state.show_hostnames {
+                devices
+                    .iter()
+                    .find(|d| d.ips.contains(&conn.remote_addr.ip()))
+                    .and_then(|d| d.hostname.clone())
+                    .or_else(|| {
+                        dns_resolver.and_then(|r| r.get_hostname(&conn.remote_addr.ip()))
+                    })
+            } else {
+                None
+            };
+
+            let remote_addr = if let Some(h) = remote_name {
                 if ui_state.show_port_numbers {
                     format!("{}:{}", h, conn.remote_addr.port())
                 } else {
@@ -269,8 +293,9 @@ fn draw_grouped_connections_list(
     f: &mut Frame,
     ui_state: &UIState,
     grouped_rows: &[GroupedRow],
+    devices: &[Device],
     area: Rect,
-    _dns_resolver: Option<&crate::network::dns::DnsResolver>,
+    dns_resolver: Option<&crate::network::dns::DnsResolver>,
     show_location: bool,
     _click_regions: &mut ClickableRegions,
 ) {
@@ -318,15 +343,64 @@ fn draw_grouped_connections_list(
                 } else {
                     "  ├── "
                 };
+
+                let local_name = if ui_state.show_hostnames {
+                    devices
+                        .iter()
+                        .find(|d| d.ips.contains(&connection.local_addr.ip()))
+                        .and_then(|d| d.hostname.clone())
+                        .or_else(|| {
+                            dns_resolver.and_then(|r| r.get_hostname(&connection.local_addr.ip()))
+                        })
+                } else {
+                    None
+                };
+
+                let local_addr = if let Some(h) = local_name {
+                    if ui_state.show_port_numbers {
+                        format!("{}:{}", h, connection.local_addr.port())
+                    } else {
+                        h
+                    }
+                } else if ui_state.show_port_numbers {
+                    connection.local_addr.to_string()
+                } else {
+                    connection.local_addr.ip().to_string()
+                };
+
+                let remote_name = if ui_state.show_hostnames {
+                    devices
+                        .iter()
+                        .find(|d| d.ips.contains(&connection.remote_addr.ip()))
+                        .and_then(|d| d.hostname.clone())
+                        .or_else(|| {
+                            dns_resolver.and_then(|r| r.get_hostname(&connection.remote_addr.ip()))
+                        })
+                } else {
+                    None
+                };
+
+                let remote_addr = if let Some(h) = remote_name {
+                    if ui_state.show_port_numbers {
+                        format!("{}:{}", h, connection.remote_addr.port())
+                    } else {
+                        h
+                    }
+                } else if ui_state.show_port_numbers {
+                    connection.remote_addr.to_string()
+                } else {
+                    connection.remote_addr.ip().to_string()
+                };
+
                 let mut cells = vec![
                     status_indicator_cell(connection),
                     Cell::from(Line::from(vec![
                         Span::styled(prefix, fg(muted())),
                         Span::raw(connection.protocol.to_string()),
                     ])),
-                    Cell::from(connection.local_addr.to_string())
+                    Cell::from(local_addr)
                         .style(style_if_colored(field_local_addr())),
-                    Cell::from(connection.remote_addr.to_string())
+                    Cell::from(remote_addr)
                         .style(style_if_colored(field_remote_addr())),
                 ];
                 if show_location {
