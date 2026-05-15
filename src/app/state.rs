@@ -490,6 +490,18 @@ pub fn update_device(
         if arp.operation == ArpOperation::Reply {
             upsert_device(arp.target_ip, Some(arp.target_mac.clone()), false, true);
         }
+    } else if let ProtocolState::Ndp(ref ndp) = parsed.protocol_state {
+        // For NDP, handle similarly to ARP
+        if let Some(src_mac) = &ndp.source_mac {
+            upsert_device(ndp.source_ip, Some(src_mac.clone()), true, true);
+        }
+
+        // For Neighbor Advertisement, the target address binding is definitive
+        if ndp.operation == crate::network::types::NdpOperation::NeighborAdvertisement {
+            if let Some(target_mac) = &ndp.target_mac {
+                upsert_device(ndp.target_ip, Some(target_mac.clone()), false, true);
+            }
+        }
     } else {
         // For IP protocols, use the local and remote endpoints from the packet.
         // `upsert_device` will apply the scope heuristic internally.

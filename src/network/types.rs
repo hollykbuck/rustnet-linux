@@ -211,6 +211,26 @@ pub enum ProtocolState {
         group_addr: Option<std::net::Ipv4Addr>,
     },
     Arp(ArpInfo),
+    Ndp(NdpInfo),
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NdpInfo {
+    pub operation: NdpOperation,
+    pub source_mac: Option<String>,
+    pub source_ip: std::net::IpAddr,
+    pub target_mac: Option<String>,
+    pub target_ip: std::net::IpAddr,
+    pub target_name: Option<String>, // For Hostname/Service discovery
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NdpOperation {
+    NeighborSolicitation,
+    NeighborAdvertisement,
+    RouterSolicitation,
+    RouterAdvertisement,
+    Redirect,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2104,6 +2124,17 @@ impl Connection {
                     }
                 }
             },
+            ProtocolState::Ndp(info) => match info.operation {
+                NdpOperation::NeighborSolicitation => {
+                    Cow::Owned(format!("NDP_SOLICIT {}", info.target_ip))
+                }
+                NdpOperation::NeighborAdvertisement => {
+                    Cow::Owned(format!("NDP_ADVERT {}", info.source_ip))
+                }
+                NdpOperation::RouterSolicitation => Cow::Borrowed("NDP_ROUTER_SOL"),
+                NdpOperation::RouterAdvertisement => Cow::Borrowed("NDP_ROUTER_ADV"),
+                NdpOperation::Redirect => Cow::Borrowed("NDP_REDIRECT"),
+            },
         }
     }
 
@@ -2170,6 +2201,7 @@ impl Connection {
             ProtocolState::Icmp { .. } => Duration::from_secs(10),
             ProtocolState::Igmp { .. } => Duration::from_secs(10),
             ProtocolState::Arp(_) => Duration::from_secs(30),
+            ProtocolState::Ndp(_) => Duration::from_secs(30),
         }
     }
 
@@ -3366,3 +3398,4 @@ mod tests {
         );
     }
 }
+
