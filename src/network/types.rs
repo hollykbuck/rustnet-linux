@@ -1615,6 +1615,10 @@ impl RateTracker {
         let delta_sent = bytes_sent.saturating_sub(self.last_bytes_sent);
         let delta_received = bytes_received.saturating_sub(self.last_bytes_received);
 
+        // Update rolling sums
+        self.sum_sent += delta_sent;
+        self.sum_received += delta_received;
+
         // Add new sample with deltas
         let samples = Arc::make_mut(&mut self.samples);
         samples.push_back(RateSample {
@@ -1626,7 +1630,10 @@ impl RateTracker {
         // Lightweight overflow guard: drop oldest samples if we exceed the cap.
         // Full time-based pruning happens in prune() every ~1s.
         while samples.len() > self.max_samples {
-            samples.pop_front();
+            if let Some(oldest) = samples.pop_front() {
+                self.sum_sent = self.sum_sent.saturating_sub(oldest.delta_sent);
+                self.sum_received = self.sum_received.saturating_sub(oldest.delta_received);
+            }
         }
 
         // Update last values for next delta calculation

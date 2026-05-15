@@ -867,6 +867,7 @@ impl crate::app::App {
                     let conn = entry.value_mut();
                     let idle_secs = conn.last_activity.elapsed().unwrap_or_default().as_secs();
                     if idle_secs <= 30 || conn.has_nonzero_rates() {
+                        conn.update_rates();
                         conn.refresh_rates();
                     }
                 }
