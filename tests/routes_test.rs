@@ -1,13 +1,12 @@
 use rustnet_monitor::network::types::RouteEntry;
 use rustnet_monitor::ui::UIState;
-use std::collections::HashSet;
 use std::net::IpAddr;
 use std::str::FromStr;
 
 #[test]
 fn test_route_grouping_logic() {
     let mut ui_state = UIState::default();
-    ui_state.grouping_enabled = true;
+    ui_state.route_grouping_enabled = true;
     ui_state.selected_tab = 4;
 
     let routes = vec![
@@ -59,7 +58,7 @@ fn test_route_grouping_logic() {
     let group_name_0 = "Main".to_string();
 
     // Verify it's not expanded initially
-    assert!(!ui_state.expanded_groups.contains(&group_name_0));
+    assert!(!ui_state.route_expanded_groups.contains(&group_name_0));
 
     // Simulate toggle logic (like in event_loop.rs)
     let idx = ui_state.selected_route_index.unwrap();
@@ -74,22 +73,22 @@ fn test_route_grouping_logic() {
         };
 
         if current_idx == idx {
-            if ui_state.expanded_groups.contains(&name) {
-                ui_state.expanded_groups.remove(&name);
+            if ui_state.route_expanded_groups.contains(&name) {
+                ui_state.route_expanded_groups.remove(&name);
             } else {
-                ui_state.expanded_groups.insert(name);
+                ui_state.route_expanded_groups.insert(name);
             }
             toggled = true;
             break;
         }
         current_idx += 1;
-        if ui_state.expanded_groups.contains(&name) {
+        if ui_state.route_expanded_groups.contains(&name) {
             current_idx += groups.get(id).unwrap().len();
         }
     }
 
     assert!(toggled);
-    assert!(ui_state.expanded_groups.contains(&group_name_0));
+    assert!(ui_state.route_expanded_groups.contains(&group_name_0));
 
     // Now current_idx for "Local" should be 2 (Main header + 1 route)
     let mut current_idx = 0;
@@ -105,7 +104,7 @@ fn test_route_grouping_logic() {
             local_group_idx = Some(current_idx);
         }
         current_idx += 1;
-        if ui_state.expanded_groups.contains(&name) {
+        if ui_state.route_expanded_groups.contains(&name) {
             current_idx += groups.get(id).unwrap().len();
         }
     }

@@ -2,17 +2,34 @@ use crate::app::App;
 use crate::network::types::RouteEntry;
 use crate::ui::*;
 use ratatui::widgets::{Cell, Row, Table, TableState};
+use std::collections::HashMap;
 
-pub fn draw_routes_tab(
-    f: &mut Frame,
-    app: &App,
-    ui_state: &UIState,
-    area: Rect,
-    click_regions: &mut ClickableRegions,
-) -> anyhow::Result<()> {
+#[derive(Debug, Clone)]
+pub enum RouteRow {
+    Group {
+        table_id: u32,
+        group_name: String,
+        route_count: usize,
+        expanded: bool,
+    },
+    Route {
+        route: RouteEntry,
+        indented: bool,
+    },
+}
+
+pub fn route_table_name(table_id: u32) -> String {
+    match table_id {
+        254 => "Main".to_string(),
+        255 => "Local".to_string(),
+        253 => "Default".to_string(),
+        _ => format!("Table {}", table_id),
+    }
+}
+
+pub fn filtered_sorted_routes(app: &App, ui_state: &UIState) -> Vec<RouteEntry> {
     let mut routes = app.get_routes();
 
-    // Filter routes if a query is active
     if !ui_state.filter_query.is_empty() {
         let query = ui_state.filter_query.to_lowercase();
         routes.retain(|r| {
@@ -26,7 +43,6 @@ pub fn draw_routes_tab(
         });
     }
 
-    // Sort routes: IPv4 first, then by destination
     routes.sort_by(
         |a, b| match (a.destination.is_ipv4(), b.destination.is_ipv4()) {
             (true, false) => std::cmp::Ordering::Less,
@@ -35,7 +51,74 @@ pub fn draw_routes_tab(
         },
     );
 
-    if routes.is_empty() {
+    routes
+}
+
+pub fn visible_route_rows(app: &App, ui_state: &UIState) -> Vec<RouteRow> {
+    let routes = filtered_sorted_routes(app, ui_state);
+    let mut rows = Vec::new();
+
+    if ui_state.route_grouping_enabled {
+        let mut groups: HashMap<u32, Vec<RouteEntry>> = HashMap::new();
+        for route in routes {
+            groups.entry(route.table_id).or_default().push(route);
+        }
+
+        let mut table_ids: Vec<u32> = groups.keys().cloned().collect();
+        table_ids.sort();
+
+        for table_id in table_ids {
+            let group_routes = groups.remove(&table_id).unwrap_or_default();
+            let group_name = route_table_name(table_id);
+            let expanded = ui_state.route_expanded_groups.contains(&group_name);
+            rows.push(RouteRow::Group {
+                table_id,
+                group_name,
+                route_count: group_routes.len(),
+                expanded,
+            });
+
+            if expanded {
+                rows.extend(group_routes.into_iter().map(|route| RouteRow::Route {
+                    route,
+                    indented: true,
+                }));
+            }
+        }
+    } else {
+        rows.extend(routes.into_iter().map(|route| RouteRow::Route {
+            route,
+            indented: false,
+        }));
+    }
+
+    rows
+}
+
+pub fn selected_route(ui_state: &UIState, rows: &[RouteRow]) -> Option<RouteEntry> {
+    match ui_state.selected_route_index.and_then(|idx| rows.get(idx)) {
+        Some(RouteRow::Route { route, .. }) => Some(route.clone()),
+        _ => None,
+    }
+}
+
+pub fn selected_route_group_name(ui_state: &UIState, rows: &[RouteRow]) -> Option<String> {
+    match ui_state.selected_route_index.and_then(|idx| rows.get(idx)) {
+        Some(RouteRow::Group { group_name, .. }) => Some(group_name.clone()),
+        _ => None,
+    }
+}
+
+pub fn draw_routes_tab(
+    f: &mut Frame,
+    app: &App,
+    ui_state: &UIState,
+    area: Rect,
+    click_regions: &mut ClickableRegions,
+) -> anyhow::Result<()> {
+    let route_rows = visible_route_rows(app, ui_state);
+
+    if route_rows.is_empty() {
         let para = Paragraph::new("No routing information available.")
             .block(panel_block(" Routes "))
             .alignment(Alignment::Center);
@@ -43,66 +126,38 @@ pub fn draw_routes_tab(
         return Ok(());
     }
 
-    let mut rows = Vec::new();
+    let mut rows: Vec<Row<'static>> = Vec::new();
     let mut row_actions = Vec::new();
-    let mut display_routes = Vec::new();
 
-    if ui_state.grouping_enabled {
-        use std::collections::HashMap;
-        let mut groups: HashMap<u32, Vec<RouteEntry>> = HashMap::new();
-        for r in routes {
-            groups.entry(r.table_id).or_default().push(r);
-        }
-
-        let mut table_ids: Vec<u32> = groups.keys().cloned().collect();
-        table_ids.sort();
-
-        for id in table_ids {
-            let group_routes = groups.remove(&id).unwrap();
-            let group_name = match id {
-                254 => "Main".to_string(),
-                255 => "Local".to_string(),
-                253 => "Default".to_string(),
-                _ => format!("Table {}", id),
-            };
-
-            let expanded = ui_state.expanded_groups.contains(&group_name);
-            let symbol = if expanded { "▼" } else { "▶" };
-
-            // Group header
-            let header_idx = row_actions.len();
-            rows.push(
-                Row::new(vec![
-                    Cell::from(Span::styled(
-                        format!("{} Routing Table: {}", symbol, group_name),
-                        fg(primary()).add_modifier(Modifier::BOLD),
-                    )),
-                    Cell::from(""),
-                    Cell::from(""),
-                    Cell::from(""),
-                    Cell::from(format!("{} routes", group_routes.len())),
-                ])
-                .style(Style::default()),
-            );
-            row_actions.push(ClickAction::SelectRoute(header_idx));
-            display_routes.push(None); // Header doesn't have a specific route for modal
-
-            if expanded {
-                for route in group_routes {
-                    let route_idx = row_actions.len();
-                    rows.push(format_route_row(&route, true));
-                    row_actions.push(ClickAction::SelectRoute(route_idx));
-                    display_routes.push(Some(route));
-                }
+    for route_row in &route_rows {
+        let row_idx = row_actions.len();
+        match route_row {
+            RouteRow::Group {
+                table_id,
+                group_name,
+                route_count,
+                expanded,
+            } => {
+                let symbol = if *expanded { "▼" } else { "▶" };
+                rows.push(
+                    Row::new(vec![
+                        Cell::from(Span::styled(
+                            format!("{} Routing Table: {}", symbol, group_name),
+                            fg(primary()).add_modifier(Modifier::BOLD),
+                        )),
+                        Cell::from(""),
+                        Cell::from(""),
+                        Cell::from(format!("ID {}", table_id)),
+                        Cell::from(format!("{} routes", route_count)),
+                    ])
+                    .style(Style::default()),
+                );
+            }
+            RouteRow::Route { route, indented } => {
+                rows.push(format_route_row(route, *indented));
             }
         }
-    } else {
-        for route in routes {
-            let route_idx = row_actions.len();
-            rows.push(format_route_row(&route, false));
-            row_actions.push(ClickAction::SelectRoute(route_idx));
-            display_routes.push(Some(route));
-        }
+        row_actions.push(ClickAction::SelectRoute(row_idx));
     }
 
     let scroll_offset = ui_state.routes_scroll_offset;
@@ -151,7 +206,7 @@ pub fn draw_routes_tab(
     )
     .block(panel_block(format!(
         " System Routing Table {} (Enter for details, Space to toggle) ",
-        if ui_state.grouping_enabled {
+        if ui_state.route_grouping_enabled {
             "(Grouped by Table)"
         } else {
             ""
@@ -163,10 +218,9 @@ pub fn draw_routes_tab(
     f.render_stateful_widget(table, area, &mut state);
 
     if ui_state.show_route_modal
-        && let Some(idx) = ui_state.selected_route_index
-        && let Some(Some(route)) = display_routes.get(idx)
+        && let Some(route) = selected_route(ui_state, &route_rows)
     {
-        draw_route_modal(f, route);
+        draw_route_modal(f, &route);
     }
 
     Ok(())

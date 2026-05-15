@@ -51,8 +51,10 @@ pub struct UIState {
     pub sort_ascending: bool,
     pub grouping_enabled: bool,
     pub service_grouping_enabled: bool,
+    pub route_grouping_enabled: bool,
     pub expanded_groups: HashSet<String>,
     pub service_expanded_groups: HashSet<String>,
+    pub route_expanded_groups: HashSet<String>,
     pub filter_mode: bool,
     pub filter_query: String,
     pub filter_cursor_position: usize,
@@ -255,8 +257,10 @@ impl Default for UIState {
             sort_ascending: true,
             grouping_enabled: false,
             service_grouping_enabled: false,
+            route_grouping_enabled: false,
             expanded_groups: HashSet::new(),
             service_expanded_groups: HashSet::new(),
+            route_expanded_groups: HashSet::new(),
             filter_mode: false,
             filter_query: String::new(),
             filter_cursor_position: 0,
@@ -685,6 +689,49 @@ impl UIState {
             0
         });
     }
+    pub fn move_route_selection_page_up(&mut self, count: usize, page_size: usize) {
+        if count == 0 {
+            return;
+        }
+        let idx = self
+            .selected_route_index
+            .unwrap_or(0)
+            .min(count.saturating_sub(1));
+        self.selected_route_index = Some(idx.saturating_sub(page_size.max(1)));
+    }
+    pub fn move_route_selection_page_down(&mut self, count: usize, page_size: usize) {
+        if count == 0 {
+            return;
+        }
+        let idx = self
+            .selected_route_index
+            .unwrap_or(0)
+            .min(count.saturating_sub(1));
+        self.selected_route_index = Some((idx + page_size.max(1)).min(count.saturating_sub(1)));
+    }
+    pub fn set_route_selection_to_first(&mut self, count: usize) {
+        if count > 0 {
+            self.selected_route_index = Some(0);
+        }
+    }
+    pub fn set_route_selection_to_last(&mut self, count: usize) {
+        if count > 0 {
+            self.selected_route_index = Some(count.saturating_sub(1));
+        }
+    }
+    pub fn ensure_valid_route_selection(&mut self, count: usize) {
+        if count == 0 {
+            self.selected_route_index = None;
+            self.routes_scroll_offset = 0;
+            self.show_route_modal = false;
+            return;
+        }
+        let idx = self
+            .selected_route_index
+            .unwrap_or(0)
+            .min(count.saturating_sub(1));
+        self.selected_route_index = Some(idx);
+    }
     pub fn move_device_selection_up(&mut self, devices: &[crate::network::types::Device]) {
         let idx = self.get_selected_device_index(devices).unwrap_or(0);
         self.set_selected_device_by_index(
@@ -807,8 +854,10 @@ impl UIState {
     pub fn reset_view(&mut self) {
         self.grouping_enabled = false;
         self.service_grouping_enabled = false;
+        self.route_grouping_enabled = false;
         self.expanded_groups.clear();
         self.service_expanded_groups.clear();
+        self.route_expanded_groups.clear();
         self.selected_group = None;
         self.service_selected_group = None;
         self.sort_column = SortColumn::default();
@@ -825,6 +874,10 @@ impl UIState {
             if self.service_grouping_enabled {
                 self.service_selected_group = None;
             }
+        } else if self.selected_tab == 4 {
+            self.route_grouping_enabled = !self.route_grouping_enabled;
+            self.selected_route_index = Some(0);
+            self.routes_scroll_offset = 0;
         } else {
             self.grouping_enabled = !self.grouping_enabled;
             if self.grouping_enabled {

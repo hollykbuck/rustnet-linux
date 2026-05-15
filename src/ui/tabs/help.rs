@@ -58,7 +58,7 @@ pub fn draw_help(f: &mut Frame, area: Rect) -> anyhow::Result<()> {
         ]),
         Line::from(vec![
             Span::styled("a ", fg(key())),
-            Span::raw("Toggle grouping (Overview: by Process, Routes: by Interface)"),
+            Span::raw("Toggle grouping (Overview: by Process, Routes: by Table)"),
         ]),
         Line::from(vec![
             Span::styled("Space ", fg(key())),
