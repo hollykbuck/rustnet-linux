@@ -113,3 +113,26 @@ pub fn format_system_time(time: std::time::SystemTime) -> String {
     let datetime: DateTime<Local> = time.into();
     datetime.format("%H:%M:%S").to_string()
 }
+
+pub fn interpret_flags(flags: u32) -> String {
+    let mut s = String::new();
+    if flags & 0x0001 != 0 {
+        s.push('U');
+    } // RTF_UP
+    if flags & 0x0002 != 0 {
+        s.push('G');
+    } // RTF_GATEWAY
+    if flags & 0x0004 != 0 {
+        s.push('H');
+    } // RTF_HOST
+    if flags & 0x0010 != 0 {
+        s.push('D');
+    } // RTF_DYNAMIC
+    if flags & 0x0020 != 0 {
+        s.push('M');
+    } // RTF_MODIFIED
+    if flags & 0x0100 != 0 {
+        s.push('!');
+    } // RTF_REJECT
+    s
+}

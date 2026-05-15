@@ -46,6 +46,7 @@ impl LinuxRouteProvider {
                         interface: iface,
                         flags,
                         metric,
+                        table_id: 254, // Default to main table for /proc/net/route
                         protocol: None,
                         scope: None,
                         pref_src: None,
@@ -83,6 +84,7 @@ impl LinuxRouteProvider {
                         interface: iface,
                         flags,
                         metric,
+                        table_id: 254, // Default to main table for /proc/net/route
                         protocol: None,
                         scope: None,
                         pref_src: None,

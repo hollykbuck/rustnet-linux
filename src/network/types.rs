@@ -1852,6 +1852,7 @@ pub struct RouteEntry {
     pub interface: String,
     pub flags: u32,
     pub metric: i32,
+    pub table_id: u32, // Routing table ID (254 for main, etc.)
     pub protocol: Option<String>,
     pub scope: Option<String>,
     pub pref_src: Option<std::net::IpAddr>,

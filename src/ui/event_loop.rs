@@ -364,31 +364,48 @@ fn handle_mouse_event(
                     ClickAction::SelectRoute(idx) => {
                         ui_state.selected_route_index = Some(idx);
                         if ui_state.grouping_enabled && is_double_click {
-                            let routes = app.get_routes();
-                            let mut groups: HashMap<
-                                String,
-                                Vec<crate::network::types::RouteEntry>,
-                            > = HashMap::new();
-                            for r in routes {
-                                groups.entry(r.interface.clone()).or_default().push(r);
+                            let mut routes = app.get_routes();
+                            if !ui_state.filter_query.is_empty() {
+                                let query = ui_state.filter_query.to_lowercase();
+                                routes.retain(|r| {
+                                    r.destination.to_string().contains(&query)
+                                        || r.gateway
+                                            .map(|g| g.to_string())
+                                            .unwrap_or_default()
+                                            .contains(&query)
+                                        || r.interface.to_lowercase().contains(&query)
+                                        || interpret_flags(r.flags).to_lowercase().contains(&query)
+                                });
                             }
-                            let mut group_names: Vec<String> = groups.keys().cloned().collect();
-                            group_names.sort_by_key(|n| n.to_lowercase());
+                            let mut groups: HashMap<u32, Vec<crate::network::types::RouteEntry>> =
+                                HashMap::new();
+                            for r in routes {
+                                groups.entry(r.table_id).or_default().push(r);
+                            }
+                            let mut table_ids: Vec<u32> = groups.keys().cloned().collect();
+                            table_ids.sort();
                             let mut current_idx = 0;
-                            for name in group_names {
+                            for id in table_ids {
+                                let group_name = match id {
+                                    254 => "Main".to_string(),
+                                    255 => "Local".to_string(),
+                                    253 => "Default".to_string(),
+                                    _ => format!("Table {}", id),
+                                };
+
                                 if current_idx == idx {
-                                    if ui_state.expanded_groups.contains(&name) {
-                                        ui_state.expanded_groups.remove(&name);
+                                    if ui_state.expanded_groups.contains(&group_name) {
+                                        ui_state.expanded_groups.remove(&group_name);
                                     } else {
-                                        ui_state.expanded_groups.insert(name);
+                                        ui_state.expanded_groups.insert(group_name);
                                     }
                                     *needs_regroup = true;
                                     return;
                                 }
                                 current_idx += 1;
-                                if ui_state.expanded_groups.contains(&name) {
-                                    let group_routes_len = groups.get(&name).unwrap().len();
-                                    if idx > current_idx && idx < current_idx + group_routes_len {
+                                if ui_state.expanded_groups.contains(&group_name) {
+                                    let group_routes_len = groups.get(&id).unwrap().len();
+                                    if idx >= current_idx && idx < current_idx + group_routes_len {
                                         ui_state.show_route_modal = true;
                                         return;
                                     }
@@ -721,28 +738,47 @@ fn handle_key_event(
                     && ui_state.grouping_enabled
                     && let Some(idx) = ui_state.selected_route_index
                 {
-                    let routes = app.get_routes();
-                    let mut groups: HashMap<String, Vec<crate::network::types::RouteEntry>> =
+                    let mut routes = app.get_routes();
+                    if !ui_state.filter_query.is_empty() {
+                        let query = ui_state.filter_query.to_lowercase();
+                        routes.retain(|r| {
+                            r.destination.to_string().contains(&query)
+                                || r.gateway
+                                    .map(|g| g.to_string())
+                                    .unwrap_or_default()
+                                    .contains(&query)
+                                || r.interface.to_lowercase().contains(&query)
+                                || interpret_flags(r.flags).to_lowercase().contains(&query)
+                        });
+                    }
+                    let mut groups: HashMap<u32, Vec<crate::network::types::RouteEntry>> =
                         HashMap::new();
                     for r in routes {
-                        groups.entry(r.interface.clone()).or_default().push(r);
+                        groups.entry(r.table_id).or_default().push(r);
                     }
-                    let mut group_names: Vec<String> = groups.keys().cloned().collect();
-                    group_names.sort_by_key(|n| n.to_lowercase());
+                    let mut table_ids: Vec<u32> = groups.keys().cloned().collect();
+                    table_ids.sort();
                     let mut current_idx = 0;
-                    for name in group_names {
+                    for id in table_ids {
+                        let group_name = match id {
+                            254 => "Main".to_string(),
+                            255 => "Local".to_string(),
+                            253 => "Default".to_string(),
+                            _ => format!("Table {}", id),
+                        };
+
                         if current_idx == idx {
-                            if ui_state.expanded_groups.contains(&name) {
-                                ui_state.expanded_groups.remove(&name);
+                            if ui_state.expanded_groups.contains(&group_name) {
+                                ui_state.expanded_groups.remove(&group_name);
                             } else {
-                                ui_state.expanded_groups.insert(name);
+                                ui_state.expanded_groups.insert(group_name);
                             }
                             *needs_regroup = true;
                             break;
                         }
                         current_idx += 1;
-                        if ui_state.expanded_groups.contains(&name) {
-                            current_idx += groups.get(&name).unwrap().len();
+                        if ui_state.expanded_groups.contains(&group_name) {
+                            current_idx += groups.get(&id).unwrap().len();
                         }
                     }
                 }
@@ -756,6 +792,48 @@ fn handle_key_event(
                 } else if ui_state.selected_tab == 2 {
                     ui_state.collapse_selected_group();
                     *needs_regroup = true;
+                } else if ui_state.selected_tab == 4 && ui_state.grouping_enabled {
+                    if let Some(idx) = ui_state.selected_route_index {
+                        let mut routes = app.get_routes();
+                        if !ui_state.filter_query.is_empty() {
+                            let query = ui_state.filter_query.to_lowercase();
+                            routes.retain(|r| {
+                                r.destination.to_string().contains(&query)
+                                    || r.gateway
+                                        .map(|g| g.to_string())
+                                        .unwrap_or_default()
+                                        .contains(&query)
+                                    || r.interface.to_lowercase().contains(&query)
+                                    || interpret_flags(r.flags).to_lowercase().contains(&query)
+                            });
+                        }
+                        let mut groups: HashMap<u32, Vec<crate::network::types::RouteEntry>> =
+                            HashMap::new();
+                        for r in routes {
+                            groups.entry(r.table_id).or_default().push(r);
+                        }
+                        let mut table_ids: Vec<u32> = groups.keys().cloned().collect();
+                        table_ids.sort();
+                        let mut current_idx = 0;
+                        for id in table_ids {
+                            let group_name = match id {
+                                254 => "Main".to_string(),
+                                255 => "Local".to_string(),
+                                253 => "Default".to_string(),
+                                _ => format!("Table {}", id),
+                            };
+
+                            if current_idx == idx {
+                                ui_state.expanded_groups.remove(&group_name);
+                                *needs_regroup = true;
+                                break;
+                            }
+                            current_idx += 1;
+                            if ui_state.expanded_groups.contains(&group_name) {
+                                current_idx += groups.get(&id).unwrap().len();
+                            }
+                        }
+                    }
                 }
             }
             (KeyCode::Right, _) | (KeyCode::Char('l'), _)
@@ -767,6 +845,48 @@ fn handle_key_event(
                 } else if ui_state.selected_tab == 2 {
                     ui_state.expand_selected_group();
                     *needs_regroup = true;
+                } else if ui_state.selected_tab == 4 && ui_state.grouping_enabled {
+                    if let Some(idx) = ui_state.selected_route_index {
+                        let mut routes = app.get_routes();
+                        if !ui_state.filter_query.is_empty() {
+                            let query = ui_state.filter_query.to_lowercase();
+                            routes.retain(|r| {
+                                r.destination.to_string().contains(&query)
+                                    || r.gateway
+                                        .map(|g| g.to_string())
+                                        .unwrap_or_default()
+                                        .contains(&query)
+                                    || r.interface.to_lowercase().contains(&query)
+                                    || interpret_flags(r.flags).to_lowercase().contains(&query)
+                                });
+                        }
+                        let mut groups: HashMap<u32, Vec<crate::network::types::RouteEntry>> =
+                            HashMap::new();
+                        for r in routes {
+                            groups.entry(r.table_id).or_default().push(r);
+                        }
+                        let mut table_ids: Vec<u32> = groups.keys().cloned().collect();
+                        table_ids.sort();
+                        let mut current_idx = 0;
+                        for id in table_ids {
+                            let group_name = match id {
+                                254 => "Main".to_string(),
+                                255 => "Local".to_string(),
+                                253 => "Default".to_string(),
+                                _ => format!("Table {}", id),
+                            };
+
+                            if current_idx == idx {
+                                ui_state.expanded_groups.insert(group_name);
+                                *needs_regroup = true;
+                                break;
+                            }
+                            current_idx += 1;
+                            if ui_state.expanded_groups.contains(&group_name) {
+                                current_idx += groups.get(&id).unwrap().len();
+                            }
+                        }
+                    }
                 }
             }
             (KeyCode::Char('a'), _) => {

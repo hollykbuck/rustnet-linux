@@ -49,24 +49,32 @@ pub fn draw_routes_tab(
 
     if ui_state.grouping_enabled {
         use std::collections::HashMap;
-        let mut groups: HashMap<String, Vec<RouteEntry>> = HashMap::new();
+        let mut groups: HashMap<u32, Vec<RouteEntry>> = HashMap::new();
         for r in routes {
-            groups.entry(r.interface.clone()).or_default().push(r);
+            groups.entry(r.table_id).or_default().push(r);
         }
 
-        let mut group_names: Vec<String> = groups.keys().cloned().collect();
-        group_names.sort_by_key(|n| n.to_lowercase());
+        let mut table_ids: Vec<u32> = groups.keys().cloned().collect();
+        table_ids.sort();
 
-        for name in group_names {
-            let group_routes = groups.remove(&name).unwrap();
-            let expanded = ui_state.expanded_groups.contains(&name);
+        for id in table_ids {
+            let group_routes = groups.remove(&id).unwrap();
+            let group_name = match id {
+                254 => "Main".to_string(),
+                255 => "Local".to_string(),
+                253 => "Default".to_string(),
+                _ => format!("Table {}", id),
+            };
+
+            let expanded = ui_state.expanded_groups.contains(&group_name);
             let symbol = if expanded { "▼" } else { "▶" };
 
             // Group header
+            let header_idx = row_actions.len();
             rows.push(
                 Row::new(vec![
                     Cell::from(Span::styled(
-                        format!("{} Interface: {}", symbol, name),
+                        format!("{} Routing Table: {}", symbol, group_name),
                         fg(primary()).add_modifier(Modifier::BOLD),
                     )),
                     Cell::from(""),
@@ -76,32 +84,42 @@ pub fn draw_routes_tab(
                 ])
                 .style(Style::default()),
             );
-            row_actions.push(ClickAction::SelectRoute(row_actions.len()));
+            row_actions.push(ClickAction::SelectRoute(header_idx));
             display_routes.push(None); // Header doesn't have a specific route for modal
 
             if expanded {
                 for route in group_routes {
+                    let route_idx = row_actions.len();
                     rows.push(format_route_row(&route, true));
-                    row_actions.push(ClickAction::SelectRoute(row_actions.len()));
+                    row_actions.push(ClickAction::SelectRoute(route_idx));
                     display_routes.push(Some(route));
                 }
             }
         }
     } else {
         for route in routes {
+            let route_idx = row_actions.len();
             rows.push(format_route_row(&route, false));
-            row_actions.push(ClickAction::SelectRoute(row_actions.len()));
+            row_actions.push(ClickAction::SelectRoute(route_idx));
             display_routes.push(Some(route));
         }
     }
 
+    let scroll_offset = ui_state.routes_scroll_offset;
+    let visible_rows = ui_state.visible_rows.max(1);
+    let total_rows = rows.len();
+    let window_end = (scroll_offset + visible_rows).min(total_rows);
+    let visible_rows_subset = &rows[scroll_offset.min(total_rows)..window_end];
+
     // Register click regions
-    let header_height = 3; // Block title + Table header
-    for (i, action) in row_actions.iter().enumerate() {
-        click_regions.register(
-            Rect::new(area.x, area.y + header_height + i as u16, area.width, 1),
-            action.clone(),
-        );
+    let header_height = 2; // Block border + Table header
+    for (i, row_idx) in (scroll_offset..window_end).enumerate() {
+        if let Some(action) = row_actions.get(row_idx) {
+            click_regions.register(
+                Rect::new(area.x, area.y + header_height + i as u16, area.width, 1),
+                action.clone(),
+            );
+        }
     }
 
     let mut state = TableState::default();
@@ -112,7 +130,7 @@ pub fn draw_routes_tab(
     }
 
     let table = Table::new(
-        rows,
+        visible_rows_subset.to_vec(),
         [
             Constraint::Percentage(30),
             Constraint::Percentage(25),
@@ -132,9 +150,9 @@ pub fn draw_routes_tab(
         .style(fg(heading())),
     )
     .block(panel_block(format!(
-        " System Routing Table {} (Enter for details) ",
+        " System Routing Table {} (Enter for details, Space to toggle) ",
         if ui_state.grouping_enabled {
-            "(Grouped by Interface)"
+            "(Grouped by Table)"
         } else {
             ""
         }
@@ -195,29 +213,6 @@ fn format_route_row(route: &RouteEntry, indent: bool) -> Row<'static> {
         Cell::from(iface),
         Cell::from(metric),
     ])
-}
-
-fn interpret_flags(flags: u32) -> String {
-    let mut s = String::new();
-    if flags & 0x0001 != 0 {
-        s.push('U');
-    } // RTF_UP
-    if flags & 0x0002 != 0 {
-        s.push('G');
-    } // RTF_GATEWAY
-    if flags & 0x0004 != 0 {
-        s.push('H');
-    } // RTF_HOST
-    if flags & 0x0010 != 0 {
-        s.push('D');
-    } // RTF_DYNAMIC
-    if flags & 0x0020 != 0 {
-        s.push('M');
-    } // RTF_MODIFIED
-    if flags & 0x0100 != 0 {
-        s.push('!');
-    } // RTF_REJECT
-    s
 }
 
 fn draw_route_modal(f: &mut Frame, route: &RouteEntry) {
