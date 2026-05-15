@@ -66,6 +66,7 @@ pub fn update_connection(
                 c.packets_received += 1;
             }
 
+            c.update_rates();
             c.last_activity = now;
 
             // Update state (TCP, etc.)
@@ -91,7 +92,7 @@ pub fn update_connection(
             // Log new connection
             stats.connections_tracked.fetch_add(1, Ordering::Relaxed);
 
-            let conn = Connection {
+            let mut conn = Connection {
                 protocol: parsed.protocol,
                 local_addr: parsed.local_addr,
                 remote_addr: parsed.remote_addr,
@@ -127,6 +128,8 @@ pub fn update_connection(
                 tcp_analytics: None,
                 initial_rtt: None,
             };
+
+            conn.update_rates();
 
             if let Some(log_path) = json_log_path {
                 log_connection_event(log_path, "connection_new", &conn, None, dns_resolver);
@@ -487,3 +490,5 @@ pub fn sort_connections(
         }
     });
 }
+
+
