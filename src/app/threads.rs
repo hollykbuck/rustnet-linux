@@ -35,7 +35,7 @@ const MAX_HISTORIC_CONNECTIONS: usize = 5_000;
 
 impl crate::app::App {
     /// Start all background threads
-    pub fn start(&mut self) -> Result<std::sync::mpsc::Receiver<()>> {
+    pub fn start(&self) -> Result<std::sync::mpsc::Receiver<()>> {
         info!("Starting network monitor application");
 
         // Use stored connection map
@@ -76,13 +76,10 @@ impl crate::app::App {
 
         // Mark loading as complete after a short delay
         let is_loading = Arc::clone(&self.is_loading);
-        thread::Builder::new()
-            .name("startup_flag".to_string())
-            .spawn(move || {
-                thread::sleep(Duration::from_millis(500));
-                is_loading.store(false, Ordering::Relaxed);
-            })
-            .expect("Failed to spawn startup_flag thread");
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+            is_loading.store(false, Ordering::Relaxed);
+        });
 
         Ok(process_ready_rx)
     }
@@ -693,7 +690,7 @@ impl crate::app::App {
         Ok(())
     }
 
-    /// Start snapshot provider thread for UI updates
+    /// Start snapshot provider task for UI updates
     fn start_snapshot_provider(
         &self,
         connections: Arc<DashMap<String, Connection>>,
@@ -732,204 +729,192 @@ impl crate::app::App {
             true
         };
 
-        thread::Builder::new()
-            .name("snapshot_ui".to_string())
-            .spawn(move || {
-                info!("Snapshot provider thread started");
+        tokio::spawn(async move {
+            info!("Snapshot provider task started");
 
-                loop {
-                    if should_stop.load(Ordering::Relaxed) {
-                        info!("Snapshot provider thread stopping");
-                        break;
-                    }
+            loop {
+                if should_stop.load(Ordering::Relaxed) {
+                    info!("Snapshot provider task stopping");
+                    break;
+                }
 
-                    // Create snapshot
-                    let start = Instant::now();
-                    let total_connections = connections.len();
+                // Create snapshot
+                let start = Instant::now();
+                let total_connections = connections.len();
 
-                    let mut snapshot_data: Vec<Connection> = connections
+                let mut snapshot_data: Vec<Connection> = connections
+                    .iter()
+                    .filter_map(|entry| {
+                        let mut conn = entry.value().clone();
+                        if enrich_and_filter(&mut conn, &service_lookup, filter_localhost)
+                            && conn.is_active()
+                        {
+                            Some(conn)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+
+                // Append historic connections when toggle is on
+                if show_historic.load(Ordering::Relaxed) {
+                    let historic: Vec<Connection> = historic_connections
                         .iter()
                         .filter_map(|entry| {
                             let mut conn = entry.value().clone();
-                            if enrich_and_filter(&mut conn, &service_lookup, filter_localhost)
-                                && conn.is_active()
-                            {
+                            if enrich_and_filter(&mut conn, &service_lookup, filter_localhost) {
                                 Some(conn)
                             } else {
                                 None
                             }
                         })
                         .collect();
-
-                    // Append historic connections when toggle is on
-                    if show_historic.load(Ordering::Relaxed) {
-                        let historic: Vec<Connection> = historic_connections
-                            .iter()
-                            .filter_map(|entry| {
-                                let mut conn = entry.value().clone();
-                                if enrich_and_filter(&mut conn, &service_lookup, filter_localhost) {
-                                    Some(conn)
-                                } else {
-                                    None
-                                }
-                            })
-                            .collect();
-                        snapshot_data.extend(historic);
-                    }
-
-                    // Sort by creation time
-                    snapshot_data.sort_by_key(|a| a.created_at);
-
-                    let filtered_count = snapshot_data.len();
-
-                    // Update snapshot
-                    if let Ok(mut guard) = snapshot.write() {
-                        *guard = snapshot_data;
-                    }
-
-                    // Update stats
-                    stats
-                        .connections_tracked
-                        .store(total_connections as u64, Ordering::Relaxed);
-                    *stats.last_update.write().unwrap() = Instant::now();
-
-                    debug!(
-                        "Snapshot updated in {:?} - Total: {}, Filtered: {}",
-                        start.elapsed(),
-                        total_connections,
-                        filtered_count
-                    );
-
-                    thread::sleep(refresh_interval);
+                    snapshot_data.extend(historic);
                 }
-            })
-            .expect("Failed to spawn snapshot_ui thread");
+
+                // Sort by creation time
+                snapshot_data.sort_by_key(|a| a.created_at);
+
+                let filtered_count = snapshot_data.len();
+
+                // Update snapshot
+                if let Ok(mut guard) = snapshot.write() {
+                    *guard = snapshot_data;
+                }
+
+                // Update stats
+                stats
+                    .connections_tracked
+                    .store(total_connections as u64, Ordering::Relaxed);
+                *stats.last_update.write().unwrap() = Instant::now();
+
+                debug!(
+                    "Snapshot updated in {:?} - Total: {}, Filtered: {}",
+                    start.elapsed(),
+                    total_connections,
+                    filtered_count
+                );
+
+                tokio::time::sleep(refresh_interval).await;
+            }
+        });
 
         Ok(())
     }
 
-    /// Start rate refresh thread to update rates for idle connections
+    /// Start rate refresh task to update rates for idle connections
     fn start_rate_refresh_thread(
         &self,
         connections: Arc<DashMap<String, Connection>>,
     ) -> Result<()> {
         let should_stop = Arc::clone(&self.should_stop);
 
-        thread::Builder::new()
-            .name("state_refresh".to_string())
-            .spawn(move || {
-                info!("Rate refresh thread started");
+        tokio::spawn(async move {
+            info!("Rate refresh task started");
 
-                loop {
-                    if should_stop.load(Ordering::Relaxed) {
-                        info!("Rate refresh thread stopping");
-                        break;
-                    }
-
-                    for mut entry in connections.iter_mut() {
-                        let conn = entry.value_mut();
-                        let idle_secs = conn.last_activity.elapsed().unwrap_or_default().as_secs();
-                        if idle_secs <= 30 || conn.has_nonzero_rates() {
-                            conn.refresh_rates();
-                        }
-                    }
-
-                    // Run every 1 second
-                    thread::sleep(Duration::from_secs(1));
+            loop {
+                if should_stop.load(Ordering::Relaxed) {
+                    info!("Rate refresh task stopping");
+                    break;
                 }
-            })
-            .expect("Failed to spawn state_refresh thread");
+
+                for mut entry in connections.iter_mut() {
+                    let conn = entry.value_mut();
+                    let idle_secs = conn.last_activity.elapsed().unwrap_or_default().as_secs();
+                    if idle_secs <= 30 || conn.has_nonzero_rates() {
+                        conn.refresh_rates();
+                    }
+                }
+
+                // Run every 1 second
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        });
 
         Ok(())
     }
 
-    /// Start interface statistics collection thread
+    /// Start interface statistics collection task
     fn start_interface_stats_thread(&self) -> Result<()> {
         let should_stop = Arc::clone(&self.should_stop);
         let interface_stats = Arc::clone(&self.interface_stats);
         let interface_rates = Arc::clone(&self.interface_rates);
 
-        thread::Builder::new()
-            .name("ifstats_poll".to_string())
-            .spawn(move || {
-                info!("Interface stats collection thread started");
+        tokio::spawn(async move {
+            info!("Interface stats collection task started");
 
-                let provider = PlatformStatsProvider;
-                let mut previous_stats: HashMap<String, InterfaceStats> = HashMap::new();
+            let provider = PlatformStatsProvider;
+            let mut previous_stats: HashMap<String, InterfaceStats> = HashMap::new();
 
-                loop {
-                    if should_stop.load(Ordering::Relaxed) {
-                        info!("Interface stats thread stopping");
-                        break;
-                    }
-
-                    // Collect stats from all interfaces
-                    match provider.get_all_stats() {
-                        Ok(stats_vec) => {
-                            interface_stats.clear();
-                            interface_rates.clear();
-
-                            for stat in stats_vec {
-                                if let Some(prev) = previous_stats.get(&stat.interface_name) {
-                                    let rates = stat.calculate_rates(prev);
-                                    interface_rates.insert(stat.interface_name.clone(), rates);
-                                }
-
-                                let name = stat.interface_name.clone();
-                                interface_stats.insert(name.clone(), stat.clone());
-                                previous_stats.insert(name, stat);
-                            }
-                        }
-                        Err(e) => {
-                            debug!("Failed to collect interface stats: {}", e);
-                        }
-                    }
-
-                    // Refresh every 2 seconds
-                    thread::sleep(Duration::from_secs(2));
+            loop {
+                if should_stop.load(Ordering::Relaxed) {
+                    info!("Interface stats task stopping");
+                    break;
                 }
-            })
-            .expect("Failed to spawn ifstats_poll thread");
+
+                // Collect stats from all interfaces
+                match provider.get_all_stats() {
+                    Ok(stats_vec) => {
+                        interface_stats.clear();
+                        interface_rates.clear();
+
+                        for stat in stats_vec {
+                            if let Some(prev) = previous_stats.get(&stat.interface_name) {
+                                let rates = stat.calculate_rates(prev);
+                                interface_rates.insert(stat.interface_name.clone(), rates);
+                            }
+
+                            let name = stat.interface_name.clone();
+                            interface_stats.insert(name.clone(), stat.clone());
+                            previous_stats.insert(name, stat);
+                        }
+                    }
+                    Err(e) => {
+                        debug!("Failed to collect interface stats: {}", e);
+                    }
+                }
+
+                // Refresh every 2 seconds
+                tokio::time::sleep(Duration::from_secs(2)).await;
+            }
+        });
 
         Ok(())
     }
 
-    /// Start route refresh thread
+    /// Start route refresh task
     fn start_route_refresh_thread(&self) -> Result<()> {
         let routes = Arc::clone(&self.routes);
         let should_stop = Arc::clone(&self.should_stop);
 
-        thread::Builder::new()
-            .name("route_refresh".to_string())
-            .spawn(move || {
-                info!("Route refresh thread started");
-                while !should_stop.load(Ordering::Relaxed) {
-                    #[cfg(target_os = "linux")]
-                    {
-                        use crate::network::platform::LinuxRouteProvider;
-                        match LinuxRouteProvider::get_routes() {
-                            Ok(new_routes) => {
-                                if let Ok(mut guard) = routes.write() {
-                                    *guard = new_routes;
-                                }
-                            }
-                            Err(e) => {
-                                warn!("Failed to refresh routes: {}", e);
+        tokio::spawn(async move {
+            info!("Route refresh task started");
+            while !should_stop.load(Ordering::Relaxed) {
+                #[cfg(target_os = "linux")]
+                {
+                    use crate::network::platform::LinuxRouteProvider;
+                    match LinuxRouteProvider::get_routes() {
+                        Ok(new_routes) => {
+                            if let Ok(mut guard) = routes.write() {
+                                *guard = new_routes;
                             }
                         }
+                        Err(e) => {
+                            warn!("Failed to refresh routes: {}", e);
+                        }
                     }
-
-                    // Refresh every 5 seconds
-                    thread::sleep(Duration::from_secs(5));
                 }
-                info!("Route refresh thread stopped");
-            })
-            .expect("Failed to spawn route_refresh thread");
+
+                // Refresh every 5 seconds
+                tokio::time::sleep(Duration::from_secs(5)).await;
+            }
+            info!("Route refresh task stopped");
+        });
 
         Ok(())
     }
 
-    /// Start traffic history thread for graph visualization
+    /// Start traffic history task for graph visualization
     fn start_traffic_history_thread(&self) -> Result<()> {
         let should_stop = Arc::clone(&self.should_stop);
         let traffic_history = Arc::clone(&self.traffic_history);
@@ -938,70 +923,67 @@ impl crate::app::App {
         let stats = Arc::clone(&self.stats);
         let rtt_tracker = Arc::clone(&self.rtt_tracker);
 
-        thread::Builder::new()
-            .name("graph_ui".to_string())
-            .spawn(move || {
-                info!("Traffic history thread started");
+        tokio::spawn(async move {
+            info!("Traffic history task started");
 
-                let mut prev_packets: u64 = 0;
-                let mut prev_retransmits: u64 = 0;
+            let mut prev_packets: u64 = 0;
+            let mut prev_retransmits: u64 = 0;
 
-                loop {
-                    if should_stop.load(Ordering::Relaxed) {
-                        info!("Traffic history thread stopping");
-                        break;
-                    }
-
-                    let (total_rx, total_tx) =
-                        interface_rates
-                            .iter()
-                            .fold((0u64, 0u64), |(rx, tx), entry| {
-                                (
-                                    rx + entry.value().rx_bytes_per_sec,
-                                    tx + entry.value().tx_bytes_per_sec,
-                                )
-                            });
-
-                    let connection_count = connections_snapshot
-                        .read()
-                        .map(|snap| snap.iter().filter(|c| !c.is_historic).count())
-                        .unwrap_or(0);
-
-                    let current_packets = stats.packets_processed.load(Ordering::Relaxed);
-                    let current_retransmits = stats.total_tcp_retransmits.load(Ordering::Relaxed);
-
-                    let packets_delta = current_packets.saturating_sub(prev_packets);
-                    let retransmits_delta = current_retransmits.saturating_sub(prev_retransmits);
-
-                    prev_packets = current_packets;
-                    prev_retransmits = current_retransmits;
-
-                    let avg_rtt_ms = rtt_tracker
-                        .lock()
-                        .ok()
-                        .and_then(|mut tracker| tracker.take_average_rtt(1));
-
-                    if let Ok(mut history) = traffic_history.write() {
-                        history.add_sample(
-                            total_rx,
-                            total_tx,
-                            connection_count,
-                            packets_delta,
-                            retransmits_delta,
-                            avg_rtt_ms,
-                        );
-                    }
-
-                    // Update every 1 second
-                    thread::sleep(Duration::from_secs(1));
+            loop {
+                if should_stop.load(Ordering::Relaxed) {
+                    info!("Traffic history task stopping");
+                    break;
                 }
-            })
-            .expect("Failed to spawn graph_ui thread");
+
+                let (total_rx, total_tx) =
+                    interface_rates
+                        .iter()
+                        .fold((0u64, 0u64), |(rx, tx), entry| {
+                            (
+                                rx + entry.value().rx_bytes_per_sec,
+                                tx + entry.value().tx_bytes_per_sec,
+                            )
+                        });
+
+                let connection_count = connections_snapshot
+                    .read()
+                    .map(|snap| snap.iter().filter(|c| !c.is_historic).count())
+                    .unwrap_or(0);
+
+                let current_packets = stats.packets_processed.load(Ordering::Relaxed);
+                let current_retransmits = stats.total_tcp_retransmits.load(Ordering::Relaxed);
+
+                let packets_delta = current_packets.saturating_sub(prev_packets);
+                let retransmits_delta = current_retransmits.saturating_sub(prev_retransmits);
+
+                prev_packets = current_packets;
+                prev_retransmits = current_retransmits;
+
+                let avg_rtt_ms = rtt_tracker
+                    .lock()
+                    .ok()
+                    .and_then(|mut tracker| tracker.take_average_rtt(1));
+
+                if let Ok(mut history) = traffic_history.write() {
+                    history.add_sample(
+                        total_rx,
+                        total_tx,
+                        connection_count,
+                        packets_delta,
+                        retransmits_delta,
+                        avg_rtt_ms,
+                    );
+                }
+
+                // Update every 1 second
+                tokio::time::sleep(Duration::from_secs(1)).await;
+            }
+        });
 
         Ok(())
     }
 
-    /// Start GeoIP enrichment thread
+    /// Start GeoIP enrichment task
     fn start_geoip_enrichment_thread(
         &self,
         connections: Arc<DashMap<String, Connection>>,
@@ -1013,85 +995,80 @@ impl crate::app::App {
 
         let should_stop = Arc::clone(&self.should_stop);
 
-        thread::Builder::new()
-            .name("geoip-enrichment".to_string())
-            .spawn(move || {
-                info!("GeoIP enrichment thread started");
-                let interval = Duration::from_millis(500);
+        tokio::spawn(async move {
+            info!("GeoIP enrichment task started");
+            let interval = Duration::from_millis(500);
 
-                loop {
-                    if should_stop.load(Ordering::Relaxed) {
-                        info!("GeoIP enrichment thread stopping");
-                        break;
-                    }
+            loop {
+                if should_stop.load(Ordering::Relaxed) {
+                    info!("GeoIP enrichment task stopping");
+                    break;
+                }
 
-                    let mut enriched = 0;
-                    for mut entry in connections.iter_mut() {
-                        if entry.geoip_info.is_none() {
-                            let remote_ip = entry.remote_addr.ip();
-                            let info = geoip_resolver.lookup(remote_ip);
-                            if info.has_data() {
-                                entry.geoip_info = Some(info);
-                                enriched += 1;
-                            }
+                let mut enriched = 0;
+                for mut entry in connections.iter_mut() {
+                    if entry.geoip_info.is_none() {
+                        let remote_ip = entry.remote_addr.ip();
+                        let info = geoip_resolver.lookup(remote_ip);
+                        if info.has_data() {
+                            entry.geoip_info = Some(info);
+                            enriched += 1;
                         }
                     }
-
-                    if enriched > 0 {
-                        debug!("Enriched {} connections with GeoIP info", enriched);
-                    }
-
-                    thread::sleep(interval);
                 }
-            })
-            .expect("Failed to spawn GeoIP enrichment thread");
+
+                if enriched > 0 {
+                    debug!("Enriched {} connections with GeoIP info", enriched);
+                }
+
+                tokio::time::sleep(interval).await;
+            }
+        });
 
         Ok(())
     }
 
-    /// Start device enrichment thread to populate hostnames for discovered devices
+    /// Start device enrichment task to populate hostnames for discovered devices
     fn start_device_enrichment_thread(&self) -> Result<()> {
         let devices = Arc::clone(&self.devices);
         let dns_resolver = self.dns_resolver.clone();
         let should_stop = Arc::clone(&self.should_stop);
 
-        thread::Builder::new()
-            .name("device-enrichment".to_string())
-            .spawn(move || {
-                info!("Device enrichment thread started");
-                let interval = Duration::from_secs(5);
+        tokio::spawn(async move {
+            info!("Device enrichment task started");
+            let interval = Duration::from_secs(5);
 
-                while !should_stop.load(Ordering::Relaxed) {
-                    if let Some(resolver) = &dns_resolver {
-                        let mut updated = 0;
-                        for mut entry in devices.iter_mut() {
-                            let device = entry.value_mut();
+            while !should_stop.load(Ordering::Relaxed) {
+                if let Some(resolver) = &dns_resolver {
+                    let mut updated = 0;
+                    for mut entry in devices.iter_mut() {
+                        let device = entry.value_mut();
 
-                            // Try to get hostname from DNS resolver if missing
-                            if device.hostname.is_none() {
-                                for ip in &device.ips {
-                                    if let Some(hostname) = resolver.get_hostname(ip) {
-                                        device.hostname = Some(hostname);
-                                        updated += 1;
-                                        break;
-                                    }
+                        // Try to get hostname from DNS resolver if missing
+                        if device.hostname.is_none() {
+                            for ip in &device.ips {
+                                if let Some(hostname) = resolver.get_hostname(ip) {
+                                    device.hostname = Some(hostname);
+                                    updated += 1;
+                                    break;
                                 }
                             }
                         }
-                        if updated > 0 {
-                            debug!("Enriched {} devices with hostnames", updated);
-                        }
                     }
-
-                    thread::sleep(interval);
+                    if updated > 0 {
+                        debug!("Enriched {} devices with hostnames", updated);
+                    }
                 }
-            })
-            .expect("Failed to spawn device-enrichment thread");
+
+                tokio::time::sleep(interval).await;
+            }
+        });
 
         Ok(())
     }
 
-    /// Start cleanup thread to remove old connections
+
+    /// Start cleanup task to remove old connections
     fn start_cleanup_thread(
         &self,
         connections: Arc<DashMap<String, Connection>>,
@@ -1102,14 +1079,12 @@ impl crate::app::App {
         let pcap_export_path = self.config.pcap_export_file.clone();
         let dns_resolver = self.dns_resolver.clone();
 
-        thread::Builder::new()
-            .name("cleanup_thread".to_string())
-            .spawn(move || {
-            info!("Cleanup thread started");
+        tokio::spawn(async move {
+            info!("Cleanup task started");
 
             loop {
                 if should_stop.load(Ordering::Relaxed) {
-                    info!("Cleanup thread stopping");
+                    info!("Cleanup task stopping");
                     break;
                 }
 
@@ -1186,10 +1161,9 @@ impl crate::app::App {
                     mapping.retain(|_, conn_key| !removed_keys.contains(conn_key));
                 }
 
-                thread::sleep(Duration::from_secs(5));
+                tokio::time::sleep(Duration::from_secs(5)).await;
             }
-        })
-        .expect("Failed to spawn cleanup_thread");
+        });
 
         Ok(())
     }

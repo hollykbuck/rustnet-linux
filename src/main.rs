@@ -5,6 +5,7 @@ use simplelog::{Config as LogConfig, WriteLogger};
 use std::fs::{self, File};
 use std::io;
 use std::path::Path;
+use std::sync::Arc;
 
 mod app;
 mod cli;
@@ -16,7 +17,8 @@ use crate::app::sandbox::initialize_sandbox;
 use crate::app::{App, Config};
 use crate::ui::run_ui_loop;
 
-fn main() -> Result<()> {
+#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
+async fn main() -> Result<()> {
     // Check for required dependencies on Windows
     #[cfg(target_os = "windows")]
     check_windows_dependencies()?;
@@ -54,7 +56,7 @@ fn main() -> Result<()> {
     info!("Terminal UI initialized");
 
     // Create and start the application
-    let mut app = App::new(config.clone())?;
+    let app = Arc::new(App::new(config.clone())?);
     let process_ready_rx = app.start()?;
     info!("Application started");
 
@@ -83,8 +85,19 @@ fn main() -> Result<()> {
         return Err(e);
     }
 
-    // Run the UI loop
-    let res = run_ui_loop(&mut terminal, &app);
+    // Run the UI loop in spawn_blocking because it's a long-running blocking operation
+    let app_ui = Arc::clone(&app);
+    let ui_res = tokio::task::spawn_blocking(move || {
+        let mut terminal = terminal;
+        let res = run_ui_loop(&mut terminal, &app_ui);
+        (res, terminal)
+    })
+    .await;
+
+    let (res, mut terminal) = match ui_res {
+        Ok(val) => val,
+        Err(e) => return Err(anyhow::anyhow!("UI task panicked: {}", e)),
+    };
 
     // Cleanup
     app.stop();

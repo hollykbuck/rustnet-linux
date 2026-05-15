@@ -125,7 +125,7 @@ impl DnsResolver {
         Self::new(DnsResolverConfig::default())
     }
 
-    /// Start background resolver threads
+    /// Start background resolver tasks
     fn start_resolver_threads(&self, request_rx: Receiver<IpAddr>, config: &DnsResolverConfig) {
         let num_threads = config.resolver_threads;
 
@@ -136,54 +136,55 @@ impl DnsResolver {
             let cache_ttl = config.cache_ttl;
             let negative_cache_ttl = config.negative_cache_ttl;
 
-            thread::Builder::new()
-                .name(format!("dns-resolver-{}", i))
-                .spawn(move || {
-                    debug!("DNS resolver thread {} started", i);
+            tokio::spawn(async move {
+                debug!("DNS resolver task {} started", i);
 
-                    while !should_stop.load(Ordering::Relaxed) {
-                        match rx.recv_timeout(Duration::from_millis(100)) {
-                            Ok(ip) => {
-                                // Skip if already resolved or pending
-                                if let Some(entry) = cache.get(&ip) {
-                                    let age = entry.resolved_at.elapsed();
-                                    match entry.state {
-                                        ResolutionState::Pending => continue,
-                                        ResolutionState::Resolved if age < cache_ttl => continue,
-                                        ResolutionState::Failed if age < negative_cache_ttl => {
-                                            continue;
-                                        }
-                                        _ => {} // Expired, re-resolve
+                while !should_stop.load(Ordering::Relaxed) {
+                    match rx.recv_timeout(Duration::from_millis(100)) {
+                        Ok(ip) => {
+                            // Skip if already resolved or pending
+                            if let Some(entry) = cache.get(&ip) {
+                                let age = entry.resolved_at.elapsed();
+                                match entry.state {
+                                    ResolutionState::Pending => continue,
+                                    ResolutionState::Resolved if age < cache_ttl => continue,
+                                    ResolutionState::Failed if age < negative_cache_ttl => {
+                                        continue;
                                     }
+                                    _ => {} // Expired, re-resolve
                                 }
+                            }
 
-                                // Mark as pending
-                                cache.insert(ip, CachedHostname::pending());
+                            // Mark as pending
+                            cache.insert(ip, CachedHostname::pending());
 
-                                // Perform DNS lookup
+                            // Perform DNS lookup (this is blocking, so use spawn_blocking)
+                            let cache_clone = Arc::clone(&cache);
+                            let _ = tokio::task::spawn_blocking(move || {
                                 match lookup_addr(&ip) {
                                     Ok(hostname) => {
                                         debug!("Resolved {} -> {}", ip, hostname);
-                                        cache.insert(ip, CachedHostname::resolved(hostname));
+                                        cache_clone.insert(ip, CachedHostname::resolved(hostname));
                                     }
                                     Err(e) => {
                                         debug!("Failed to resolve {}: {}", ip, e);
-                                        cache.insert(ip, CachedHostname::failed());
+                                        cache_clone.insert(ip, CachedHostname::failed());
                                     }
                                 }
-                            }
-                            Err(crossbeam::channel::RecvTimeoutError::Timeout) => continue,
-                            Err(crossbeam::channel::RecvTimeoutError::Disconnected) => break,
+                            })
+                            .await;
                         }
+                        Err(crossbeam::channel::RecvTimeoutError::Timeout) => continue,
+                        Err(crossbeam::channel::RecvTimeoutError::Disconnected) => break,
                     }
+                }
 
-                    debug!("DNS resolver thread {} stopping", i);
-                })
-                .expect("Failed to spawn DNS resolver thread");
+                debug!("DNS resolver task {} stopping", i);
+            });
         }
     }
 
-    /// Start cache cleanup thread to evict expired entries
+    /// Start cache cleanup task to evict expired entries
     fn start_cache_cleanup_thread(&self) {
         let cache = Arc::clone(&self.cache);
         let should_stop = Arc::clone(&self.should_stop);
@@ -191,46 +192,43 @@ impl DnsResolver {
         let negative_cache_ttl = self.config.negative_cache_ttl;
         let max_cache_size = self.config.max_cache_size;
 
-        thread::Builder::new()
-            .name("dns-cache-cleanup".to_string())
-            .spawn(move || {
-                debug!("DNS cache cleanup thread started");
+        tokio::spawn(async move {
+            debug!("DNS cache cleanup task started");
 
-                while !should_stop.load(Ordering::Relaxed) {
-                    thread::sleep(Duration::from_secs(30)); // Cleanup every 30 seconds
+            while !should_stop.load(Ordering::Relaxed) {
+                tokio::time::sleep(Duration::from_secs(30)).await; // Cleanup every 30 seconds
 
-                    if should_stop.load(Ordering::Relaxed) {
-                        break;
-                    }
-
-                    // Remove expired entries
-                    cache.retain(|_, entry| {
-                        let age = entry.resolved_at.elapsed();
-                        match entry.state {
-                            ResolutionState::Resolved => age < cache_ttl,
-                            ResolutionState::Failed => age < negative_cache_ttl,
-                            ResolutionState::Pending => age < Duration::from_secs(30), // Timeout pending
-                        }
-                    });
-
-                    // If cache is too large, remove oldest entries
-                    if cache.len() > max_cache_size {
-                        let mut entries: Vec<_> =
-                            cache.iter().map(|e| (*e.key(), e.resolved_at)).collect();
-                        entries.sort_by_key(|(_, time)| *time);
-
-                        let to_remove = cache.len() - max_cache_size;
-                        for (ip, _) in entries.into_iter().take(to_remove) {
-                            cache.remove(&ip);
-                        }
-                    }
-
-                    debug!("DNS cache size: {}", cache.len());
+                if should_stop.load(Ordering::Relaxed) {
+                    break;
                 }
 
-                debug!("DNS cache cleanup thread stopping");
-            })
-            .expect("Failed to spawn DNS cache cleanup thread");
+                // Remove expired entries
+                cache.retain(|_, entry| {
+                    let age = entry.resolved_at.elapsed();
+                    match entry.state {
+                        ResolutionState::Resolved => age < cache_ttl,
+                        ResolutionState::Failed => age < negative_cache_ttl,
+                        ResolutionState::Pending => age < Duration::from_secs(30), // Timeout pending
+                    }
+                });
+
+                // If cache is too large, remove oldest entries
+                if cache.len() > max_cache_size {
+                    let mut entries: Vec<_> =
+                        cache.iter().map(|e| (*e.key(), e.resolved_at)).collect();
+                    entries.sort_by_key(|(_, time)| *time);
+
+                    let to_remove = cache.len() - max_cache_size;
+                    for (ip, _) in entries.into_iter().take(to_remove) {
+                        cache.remove(&ip);
+                    }
+                }
+
+                debug!("DNS cache size: {}", cache.len());
+            }
+
+            debug!("DNS cache cleanup task stopping");
+        });
     }
 
     /// Request resolution for an IP address (non-blocking)
