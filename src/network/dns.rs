@@ -140,7 +140,7 @@ impl DnsResolver {
                 debug!("DNS resolver task {} started", i);
 
                 while !should_stop.load(Ordering::Relaxed) {
-                    match rx.recv_timeout(Duration::from_millis(100)) {
+                    match rx.try_recv() {
                         Ok(ip) => {
                             // Skip if already resolved or pending
                             if let Some(entry) = cache.get(&ip) {
@@ -174,8 +174,10 @@ impl DnsResolver {
                             })
                             .await;
                         }
-                        Err(crossbeam::channel::RecvTimeoutError::Timeout) => continue,
-                        Err(crossbeam::channel::RecvTimeoutError::Disconnected) => break,
+                        Err(crossbeam::channel::TryRecvError::Empty) => {
+                            tokio::time::sleep(Duration::from_millis(100)).await;
+                        }
+                        Err(crossbeam::channel::TryRecvError::Disconnected) => break,
                     }
                 }
 

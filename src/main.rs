@@ -17,7 +17,7 @@ use crate::app::sandbox::initialize_sandbox;
 use crate::app::{App, Config};
 use crate::ui::run_ui_loop;
 
-#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
+#[tokio::main]
 async fn main() -> Result<()> {
     // Check for required dependencies on Windows
     #[cfg(target_os = "windows")]
@@ -57,7 +57,7 @@ async fn main() -> Result<()> {
 
     // Create and start the application
     let app = Arc::new(App::new(config.clone())?);
-    let process_ready_rx = app.start()?;
+    let process_ready_rx = app.start().await?;
     info!("Application started");
 
     // Pre-create sidecar JSONL file for PCAP export
@@ -72,7 +72,7 @@ async fn main() -> Result<()> {
         }
     }
 
-    // Wait for process detection to initialize
+    // Wait for process detection to initialize (eBPF etc)
     match process_ready_rx.recv_timeout(std::time::Duration::from_secs(10)) {
         Ok(()) => info!("Process detection initialized, safe to apply sandbox"),
         Err(_) => info!("Proceeding with sandbox application"),

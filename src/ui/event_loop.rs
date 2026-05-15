@@ -13,6 +13,7 @@ pub fn run_ui_loop<B: ratatui::prelude::Backend>(
 where
     <B as ratatui::prelude::Backend>::Error: Send + Sync + 'static,
 {
+    log::info!("UI loop started");
     let tick_rate = Duration::from_millis(200);
     let mut last_tick = Instant::now();
     let mut ui_state = UIState::default();
@@ -39,6 +40,8 @@ where
             } else {
                 app.get_filtered_connections(&ui_state.filter_query)
             };
+            
+            log::debug!("UI tick: is_loading={}, connections={}", app.is_loading(), connections.len());
             crate::app::state::sort_connections(
                 &mut connections,
                 ui_state.sort_column,

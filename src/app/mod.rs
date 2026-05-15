@@ -409,6 +409,11 @@ impl App {
         stats
     }
 
+    /// Set the loading state of the application
+    pub fn set_loading(&self, loading: bool) {
+        self.is_loading.store(loading, Ordering::Relaxed);
+    }
+
     /// Check if the application is still in its initial loading state
     pub fn is_loading(&self) -> bool {
         self.is_loading.load(Ordering::Relaxed)

@@ -35,51 +35,54 @@ const MAX_HISTORIC_CONNECTIONS: usize = 5_000;
 
 impl crate::app::App {
     /// Start all background threads
-    pub fn start(&self) -> Result<std::sync::mpsc::Receiver<()>> {
-        info!("Starting network monitor application");
+    pub async fn start(&self) -> Result<std::sync::mpsc::Receiver<()>> {
+        info!("Starting network monitor application - async start called");
 
         // Use stored connection map
         let connections = Arc::clone(&self.connections);
 
         // Start packet capture pipeline
         self.start_packet_capture_pipeline(connections.clone())?;
+        info!("Packet capture pipeline started");
 
         // Create channel to signal when process detection (incl. eBPF) is ready
         let (process_ready_tx, process_ready_rx) = std::sync::mpsc::sync_channel(1);
 
         // Start process enrichment thread (but delay for PKTAP detection on macOS)
         self.start_process_enrichment_conditional(connections.clone(), process_ready_tx)?;
+        info!("Process enrichment thread (conditional) started");
 
         // Start GeoIP enrichment thread
         self.start_geoip_enrichment_thread(connections.clone())?;
+        info!("GeoIP enrichment task spawned");
 
         // Start snapshot provider for UI
         self.start_snapshot_provider(connections.clone(), Arc::clone(&self.historic_connections))?;
+        info!("Snapshot provider task spawned");
 
         // Start cleanup thread
         self.start_cleanup_thread(connections.clone(), Arc::clone(&self.historic_connections))?;
+        info!("Cleanup task spawned");
 
         // Start rate refresh thread
         self.start_rate_refresh_thread(connections)?;
+        info!("Rate refresh task spawned");
 
         // Start interface stats collection thread
         self.start_interface_stats_thread()?;
+        info!("Interface stats task spawned");
 
         // Start route refresh thread
         self.start_route_refresh_thread()?;
+        info!("Route refresh task spawned");
 
         // Start traffic history thread for graph visualization
         self.start_traffic_history_thread()?;
+        info!("Traffic history task spawned");
 
         // Start device enrichment thread (reverse DNS, etc.)
         self.start_device_enrichment_thread()?;
-
-        // Mark loading as complete after a short delay
-        let is_loading = Arc::clone(&self.is_loading);
-        tokio::spawn(async move {
-            tokio::time::sleep(Duration::from_millis(500)).await;
-            is_loading.store(false, Ordering::Relaxed);
-        });
+        info!("Device enrichment task spawned");
 
         Ok(process_ready_rx)
     }
@@ -729,8 +732,10 @@ impl crate::app::App {
             true
         };
 
+        let is_loading = Arc::clone(&self.is_loading);
         tokio::spawn(async move {
             info!("Snapshot provider task started");
+            let mut first_snapshot = true;
 
             loop {
                 if should_stop.load(Ordering::Relaxed) {
@@ -780,6 +785,13 @@ impl crate::app::App {
                 // Update snapshot
                 if let Ok(mut guard) = snapshot.write() {
                     *guard = snapshot_data;
+                }
+
+                // If this is the first successful snapshot, signal that loading is complete
+                if first_snapshot {
+                    is_loading.store(false, Ordering::Relaxed);
+                    info!("First UI snapshot generated, loading screen cleared");
+                    first_snapshot = false;
                 }
 
                 // Update stats
