@@ -131,7 +131,12 @@ impl crate::app::App {
         );
 
         for i in 0..num_processors {
-            self.start_packet_processor(i, packet_rx.clone(), connections.clone(), self.log_tx.clone());
+            self.start_packet_processor(
+                i,
+                packet_rx.clone(),
+                connections.clone(),
+                self.log_tx.clone(),
+            );
         }
 
         Ok(())
@@ -1164,8 +1169,12 @@ impl crate::app::App {
                                 event_type: "connection_closed".to_string(),
                                 connection: conn.clone(),
                                 duration_secs,
-                                source_hostname: dns_resolver.as_deref().and_then(|r| r.get_hostname(&conn.local_addr.ip())),
-                                dest_hostname: dns_resolver.as_deref().and_then(|r| r.get_hostname(&conn.remote_addr.ip())),
+                                source_hostname: dns_resolver
+                                    .as_deref()
+                                    .and_then(|r| r.get_hostname(&conn.local_addr.ip())),
+                                dest_hostname: dns_resolver
+                                    .as_deref()
+                                    .and_then(|r| r.get_hostname(&conn.remote_addr.ip())),
                             });
                         }
 

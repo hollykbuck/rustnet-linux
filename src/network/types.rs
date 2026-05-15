@@ -1645,7 +1645,9 @@ impl RateTracker {
             if oldest.timestamp < cutoff_time {
                 let oldest_sample = samples.pop_front().unwrap();
                 self.sum_sent = self.sum_sent.saturating_sub(oldest_sample.delta_sent);
-                self.sum_received = self.sum_received.saturating_sub(oldest_sample.delta_received);
+                self.sum_received = self
+                    .sum_received
+                    .saturating_sub(oldest_sample.delta_received);
             } else {
                 break;
             }

@@ -137,8 +137,10 @@ pub fn update_connection(
                     event_type: "connection_new".to_string(),
                     connection: conn.clone(),
                     duration_secs: None,
-                    source_hostname: dns_resolver.and_then(|r| r.get_hostname(&conn.local_addr.ip())),
-                    dest_hostname: dns_resolver.and_then(|r| r.get_hostname(&conn.remote_addr.ip())),
+                    source_hostname: dns_resolver
+                        .and_then(|r| r.get_hostname(&conn.local_addr.ip())),
+                    dest_hostname: dns_resolver
+                        .and_then(|r| r.get_hostname(&conn.remote_addr.ip())),
                 });
             }
 

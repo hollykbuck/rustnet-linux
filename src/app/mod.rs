@@ -15,7 +15,6 @@ pub mod threads;
 pub mod types;
 
 use crate::app::logging::{LogEvent, log_pcap_connection, run_logging_task};
-use crossbeam::channel::{Sender, Receiver, bounded};
 use crate::app::state::QUIC_CONNECTION_MAPPING;
 use crate::network::dns::DnsResolver;
 use crate::network::geoip::{GeoIpConfig, GeoIpResolver};
@@ -27,6 +26,7 @@ use crate::network::types::{
     TrafficHistory,
 };
 pub use config::Config;
+use crossbeam::channel::{Receiver, Sender, bounded};
 pub use types::{AppStats, ProcessDetectionStatus, SandboxInfo};
 
 /// Main application state

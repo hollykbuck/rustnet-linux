@@ -38,10 +38,7 @@ pub fn open_log_file(path: &str) -> std::io::Result<File> {
 }
 
 /// Main loop for the background logging task
-pub fn run_logging_task(
-    receiver: Receiver<LogEvent>,
-    should_stop: Arc<AtomicBool>,
-) {
+pub fn run_logging_task(receiver: Receiver<LogEvent>, should_stop: Arc<AtomicBool>) {
     while !should_stop.load(Ordering::Relaxed) || !receiver.is_empty() {
         match receiver.recv_timeout(std::time::Duration::from_millis(100)) {
             Ok(LogEvent::Connection {
