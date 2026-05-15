@@ -51,7 +51,7 @@ pub fn sort_devices(
     devices.sort_by(|a, b| {
         let ordering = match column {
             DeviceSortColumn::Status => a.is_online.cmp(&b.is_online),
-            DeviceSortColumn::IpAddress => a.ip.cmp(&b.ip),
+            DeviceSortColumn::IpAddress => a.primary_ip().cmp(&b.primary_ip()),
             DeviceSortColumn::Hostname => a.hostname.cmp(&b.hostname),
             DeviceSortColumn::MacAddress => a.mac.cmp(&b.mac),
             DeviceSortColumn::Vendor => a.vendor.cmp(&b.vendor),
@@ -331,22 +331,8 @@ pub fn update_device(
         devices
             .entry(mac_addr.clone())
             .and_modify(|d| {
-                // If the IP changed, only update it if the new signal is definitive
-                // or if the existing IP is extremely stale (e.g. 1 hour).
-                // This prevents gateway MACs from "jumping" between the IPs of
-                // various routed internal hosts.
-                if d.ip != ip {
-                    let is_stale = d
-                        .last_seen
-                        .duration_since(SystemTime::UNIX_EPOCH)
-                        .is_ok_and(|_| {
-                            d.last_seen.elapsed().unwrap_or_default() > Duration::from_secs(3600)
-                        });
-
-                    if is_definitive || is_stale {
-                        d.ip = ip;
-                    }
-                }
+                // Collect all IPs seen for this MAC
+                d.ips.insert(ip);
 
                 d.last_seen = now;
                 d.is_online = true;
@@ -416,6 +402,8 @@ pub fn update_device(
 
                 let mut discovery_details = std::collections::HashSet::new();
                 let mut open_ports = std::collections::BTreeMap::new();
+                let mut ips = std::collections::HashSet::new();
+                ips.insert(ip);
 
                 if let Some(ref dpi) = parsed.dpi_result {
                     let detail = match &dpi.application {
@@ -464,7 +452,7 @@ pub fn update_device(
                 }
 
                 Device {
-                    ip,
+                    ips,
                     mac: mac_addr,
                     vendor,
                     hostname: None, // Will be filled by background refresh if possible

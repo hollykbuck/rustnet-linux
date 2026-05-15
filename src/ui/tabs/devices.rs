@@ -36,7 +36,8 @@ fn draw_device_modal(f: &mut Frame, device: &Device) {
     let area = centered_rect(60, 50, f.area());
     f.render_widget(Clear, area);
 
-    let block = panel_block(format!(" Device Details: {} ", device.ip));
+    let primary_ip = device.primary_ip();
+    let block = panel_block(format!(" Device Details: {} ", primary_ip));
     let inner = block.inner(area);
     f.render_widget(block, area);
 
@@ -51,7 +52,17 @@ fn draw_device_modal(f: &mut Frame, device: &Device) {
         ]));
     };
 
-    add_row("IP Address", device.ip.to_string(), value_style);
+    // List all IPs
+    let mut sorted_ips: Vec<_> = device.ips.iter().collect();
+    sorted_ips.sort();
+    for (i, ip) in sorted_ips.iter().enumerate() {
+        add_row(
+            if i == 0 { "IP Addresses" } else { "" },
+            ip.to_string(),
+            value_style,
+        );
+    }
+
     add_row("MAC Address", device.mac.clone(), value_style);
     add_row(
         "Vendor",
@@ -226,11 +237,16 @@ fn draw_devices_table(
         .map(|d| {
             let status_style = if d.is_online { fg(ok()) } else { fg(muted()) };
 
-            let ip_str = if d.is_gateway {
-                format!("{} (gw)", d.ip)
+            let primary_ip = d.primary_ip();
+            let mut ip_str = if d.is_gateway {
+                format!("{} (gw)", primary_ip)
             } else {
-                d.ip.to_string()
+                primary_ip.to_string()
             };
+
+            if d.ips.len() > 1 {
+                ip_str.push_str(&format!(" (+{})", d.ips.len() - 1));
+            }
 
             let last_seen_str = format_system_time(d.last_seen);
             let first_seen_str = format_system_time(d.first_seen);

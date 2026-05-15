@@ -354,7 +354,7 @@ impl App {
             .iter()
             .map(|d| {
                 let mut device = d.value().clone();
-                device.is_gateway = gateway_ips.contains(&device.ip);
+                device.is_gateway = device.ips.iter().any(|ip| gateway_ips.contains(ip));
                 device
             })
             .collect()
@@ -371,7 +371,7 @@ impl App {
         devices
             .into_iter()
             .filter(|d| {
-                d.ip.to_string().contains(&query)
+                d.ips.iter().any(|ip| ip.to_string().contains(&query))
                     || d.mac.to_lowercase().contains(&query)
                     || d.hostname
                         .as_ref()

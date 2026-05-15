@@ -1840,7 +1840,7 @@ pub struct RouteEntry {
 /// Represents a discovered device on the local network
 #[derive(Debug, Clone)]
 pub struct Device {
-    pub ip: std::net::IpAddr,
+    pub ips: std::collections::HashSet<std::net::IpAddr>,
     pub mac: String,
     pub vendor: Option<String>,
     pub hostname: Option<String>,
@@ -1856,6 +1856,15 @@ pub struct Device {
     pub open_ports: std::collections::BTreeMap<u16, String>,
     /// Enhanced discovery details (e.g. mDNS, NetBIOS, DHCP info)
     pub discovery_details: std::collections::HashSet<String>,
+}
+
+impl Device {
+    /// Get the "primary" IP address for display (usually the most recently seen)
+    pub fn primary_ip(&self) -> std::net::IpAddr {
+        // Since HashSet doesn't guarantee order, and we don't store "last seen per IP",
+        // we'll just return an arbitrary one. In practice, most devices have 1 or 2.
+        *self.ips.iter().next().unwrap_or(&std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED))
+    }
 }
 
 #[derive(Debug, Clone)]

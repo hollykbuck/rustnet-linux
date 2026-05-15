@@ -71,6 +71,9 @@ impl crate::app::App {
         // Start traffic history thread for graph visualization
         self.start_traffic_history_thread()?;
 
+        // Start device enrichment thread (reverse DNS, etc.)
+        self.start_device_enrichment_thread()?;
+
         // Mark loading as complete after a short delay
         let is_loading = Arc::clone(&self.is_loading);
         thread::Builder::new()
@@ -411,11 +414,7 @@ impl crate::app::App {
                         }
                     };
 
-                    // Process batch. Each packet parse is isolated with
-                    // catch_unwind so that a single malformed/adversarial
-                    // packet that panics a DPI parser cannot take down the
-                    // whole pcap_rx thread and leave the monitor running
-                    // blind.
+                    // Process batch.
                     let mut parsed_count = 0;
                     for packet_data in &batch {
                         let parse_result =
@@ -567,13 +566,11 @@ impl crate::app::App {
 
         let process_lookup = create_process_lookup(use_pktap)?;
 
-        // Signal that process detection (including eBPF loading) is complete.
-        // The main thread waits for this before dropping eBPF capabilities.
+        // Signal that process detection (including eBPF) is complete.
         let _ = process_ready_tx.send(());
         let interval = Duration::from_secs(2); // Use default interval
 
         // Build and set the detection status from the process lookup implementation
-        // Only set if not already detected as pktap (to handle race conditions)
         if let Ok(mut status) = process_detection_status.write()
             && status.method != "pktap"
         {
@@ -604,7 +601,7 @@ impl crate::app::App {
                 break;
             }
 
-            // Check if PKTAP became active (abort immediately to prevent conflicts)
+            // Check if PKTAP became active
             #[cfg(target_os = "macos")]
             if pktap_active.load(Ordering::Relaxed) {
                 info!(
@@ -641,8 +638,7 @@ impl crate::app::App {
                                         return false;
                                     }
 
-                                    // Match IP: if listener is bound to wildcard, any local IP matches.
-                                    // Otherwise, require exact IP match.
+                                    // Match IP
                                     if listener.local_addr.ip().is_unspecified() {
                                         true
                                     } else {
@@ -666,49 +662,19 @@ impl crate::app::App {
             // Enrich connections without process info
             let mut enriched = 0;
             for mut entry in connections.iter_mut() {
-                // Allow partial enrichment - fill in missing pieces without overwriting existing data
                 if let Some((pid, name)) = process_lookup.get_process_for_connection(&entry) {
                     let mut did_enrich = false;
 
                     // Only set process name if it's missing
-                    if let Some(existing_name) = &entry.process_name {
-                        // Check if the existing name differs significantly (for debugging)
-                        let existing_normalized = existing_name
-                            .split_whitespace()
-                            .collect::<Vec<&str>>()
-                            .join(" ");
-                        let new_normalized =
-                            name.split_whitespace().collect::<Vec<&str>>().join(" ");
-
-                        if existing_normalized != new_normalized {
-                            debug!(
-                                "⚠️  Process name differs: existing='{}' vs lsof='{}'",
-                                existing_name, name
-                            );
-                        }
-                    } else {
+                    if entry.process_name.is_none() {
                         entry.process_name = Some(name.clone());
                         did_enrich = true;
-                        debug!(
-                            "✓ Set process name for connection {}: {}",
-                            entry.key(),
-                            name
-                        );
                     }
 
                     // Only set PID if it's missing
                     if entry.pid.is_none() {
                         entry.pid = Some(pid);
                         did_enrich = true;
-                        debug!("✓ Set PID for connection {}: {}", entry.key(), pid);
-                    } else if entry.pid != Some(pid) {
-                        // PID differs - log for debugging
-                        debug!(
-                            "⚠️  PID differs for {}: existing={:?} vs lsof={}",
-                            entry.key(),
-                            entry.pid,
-                            pid
-                        );
                     }
 
                     if did_enrich {
@@ -811,15 +777,17 @@ impl crate::app::App {
                         snapshot_data.extend(historic);
                     }
 
-                    // Sort by creation time (oldest first, newest last for maximum stability)
+                    // Sort by creation time
                     snapshot_data.sort_by_key(|a| a.created_at);
 
                     let filtered_count = snapshot_data.len();
 
                     // Update snapshot
-                    *snapshot.write().unwrap() = snapshot_data;
+                    if let Ok(mut guard) = snapshot.write() {
+                        *guard = snapshot_data;
+                    }
 
-                    // Update stats (only count active connections)
+                    // Update stats
                     stats
                         .connections_tracked
                         .store(total_connections as u64, Ordering::Relaxed);
@@ -858,8 +826,6 @@ impl crate::app::App {
                         break;
                     }
 
-                    // Refresh rates for connections that may still have non-zero rates.
-                    // Skip connections idle >30s whose rates are already zero.
                     for mut entry in connections.iter_mut() {
                         let conn = entry.value_mut();
                         let idle_secs = conn.last_activity.elapsed().unwrap_or_default().as_secs();
@@ -868,7 +834,7 @@ impl crate::app::App {
                         }
                     }
 
-                    // Run every 1 second to balance responsiveness with performance
+                    // Run every 1 second
                     thread::sleep(Duration::from_secs(1));
                 }
             })
@@ -900,18 +866,15 @@ impl crate::app::App {
                     // Collect stats from all interfaces
                     match provider.get_all_stats() {
                         Ok(stats_vec) => {
-                            // Clear old entries
                             interface_stats.clear();
                             interface_rates.clear();
 
                             for stat in stats_vec {
-                                // Calculate rates if we have previous data
                                 if let Some(prev) = previous_stats.get(&stat.interface_name) {
                                     let rates = stat.calculate_rates(prev);
                                     interface_rates.insert(stat.interface_name.clone(), rates);
                                 }
 
-                                // Store current stats
                                 let name = stat.interface_name.clone();
                                 interface_stats.insert(name.clone(), stat.clone());
                                 previous_stats.insert(name, stat);
@@ -946,8 +909,9 @@ impl crate::app::App {
                         use crate::network::platform::LinuxRouteProvider;
                         match LinuxRouteProvider::get_routes() {
                             Ok(new_routes) => {
-                                let mut guard = routes.write().expect("routes lock poisoned");
-                                *guard = new_routes;
+                                if let Ok(mut guard) = routes.write() {
+                                    *guard = new_routes;
+                                }
                             }
                             Err(e) => {
                                 warn!("Failed to refresh routes: {}", e);
@@ -955,7 +919,7 @@ impl crate::app::App {
                         }
                     }
 
-                    // Refresh every 5 seconds to minimize overhead
+                    // Refresh every 5 seconds
                     thread::sleep(Duration::from_secs(5));
                 }
                 info!("Route refresh thread stopped");
@@ -979,7 +943,6 @@ impl crate::app::App {
             .spawn(move || {
                 info!("Traffic history thread started");
 
-                // Track previous values for delta calculation
                 let mut prev_packets: u64 = 0;
                 let mut prev_retransmits: u64 = 0;
 
@@ -989,7 +952,6 @@ impl crate::app::App {
                         break;
                     }
 
-                    // Aggregate rates from all interfaces
                     let (total_rx, total_tx) =
                         interface_rates
                             .iter()
@@ -1000,13 +962,11 @@ impl crate::app::App {
                                 )
                             });
 
-                    // Get active connection count from snapshot (excludes historic)
                     let connection_count = connections_snapshot
                         .read()
                         .map(|snap| snap.iter().filter(|c| !c.is_historic).count())
                         .unwrap_or(0);
 
-                    // Get packet and retransmit counts (calculate deltas)
                     let current_packets = stats.packets_processed.load(Ordering::Relaxed);
                     let current_retransmits = stats.total_tcp_retransmits.load(Ordering::Relaxed);
 
@@ -1016,13 +976,11 @@ impl crate::app::App {
                     prev_packets = current_packets;
                     prev_retransmits = current_retransmits;
 
-                    // Get average RTT from tracker (last 1 second window)
                     let avg_rtt_ms = rtt_tracker
                         .lock()
                         .ok()
                         .and_then(|mut tracker| tracker.take_average_rtt(1));
 
-                    // Add sample to traffic history
                     if let Ok(mut history) = traffic_history.write() {
                         history.add_sample(
                             total_rx,
@@ -1043,14 +1001,14 @@ impl crate::app::App {
         Ok(())
     }
 
-    /// Start GeoIP enrichment thread to populate location/ASN info for connections
+    /// Start GeoIP enrichment thread
     fn start_geoip_enrichment_thread(
         &self,
         connections: Arc<DashMap<String, Connection>>,
     ) -> Result<()> {
         let geoip_resolver = match &self.geoip_resolver {
             Some(resolver) => Arc::clone(resolver),
-            None => return Ok(()), // No resolver available
+            None => return Ok(()),
         };
 
         let should_stop = Arc::clone(&self.should_stop);
@@ -1067,7 +1025,6 @@ impl crate::app::App {
                         break;
                     }
 
-                    // Enrich connections without GeoIP info
                     let mut enriched = 0;
                     for mut entry in connections.iter_mut() {
                         if entry.geoip_info.is_none() {
@@ -1088,6 +1045,48 @@ impl crate::app::App {
                 }
             })
             .expect("Failed to spawn GeoIP enrichment thread");
+
+        Ok(())
+    }
+
+    /// Start device enrichment thread to populate hostnames for discovered devices
+    fn start_device_enrichment_thread(&self) -> Result<()> {
+        let devices = Arc::clone(&self.devices);
+        let dns_resolver = self.dns_resolver.clone();
+        let should_stop = Arc::clone(&self.should_stop);
+
+        thread::Builder::new()
+            .name("device-enrichment".to_string())
+            .spawn(move || {
+                info!("Device enrichment thread started");
+                let interval = Duration::from_secs(5);
+
+                while !should_stop.load(Ordering::Relaxed) {
+                    if let Some(resolver) = &dns_resolver {
+                        let mut updated = 0;
+                        for mut entry in devices.iter_mut() {
+                            let device = entry.value_mut();
+
+                            // Try to get hostname from DNS resolver if missing
+                            if device.hostname.is_none() {
+                                for ip in &device.ips {
+                                    if let Some(hostname) = resolver.get_hostname(ip) {
+                                        device.hostname = Some(hostname);
+                                        updated += 1;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        if updated > 0 {
+                            debug!("Enriched {} devices with hostnames", updated);
+                        }
+                    }
+
+                    thread::sleep(interval);
+                }
+            })
+            .expect("Failed to spawn device-enrichment thread");
 
         Ok(())
     }
@@ -1114,26 +1113,18 @@ impl crate::app::App {
                     break;
                 }
 
-                // Remove inactive connections
                 let now = SystemTime::now();
                 let mut removed = 0;
-
-                // Collect keys of connections to be removed
                 let mut removed_keys = Vec::new();
-                // Collect connections to archive as historic
                 let mut to_archive: Vec<(String, Connection)> = Vec::new();
 
                 connections.retain(|key, conn| {
-                    // Use dynamic timeout based on connection type and state
                     let should_keep = !conn.should_cleanup(now);
 
                     if !should_keep {
                         removed += 1;
                         removed_keys.push(key.clone());
 
-                        // Archive to historic connections (key includes created_at
-                        // so multiple closed connections with the same 4-tuple
-                        // don't overwrite each other)
                         let mut historic = conn.clone();
                         historic.is_historic = true;
                         historic.closed_at = Some(now);
@@ -1147,13 +1138,11 @@ impl crate::app::App {
                         );
                         to_archive.push((historic_key, historic));
 
-                        // Calculate connection duration
                         let duration_secs = now
                             .duration_since(conn.created_at)
                             .map(|d| d.as_secs())
                             .ok();
 
-                        // Log connection_closed event if JSON logging is enabled
                         if let Some(log_path) = &json_log_path {
                             log_connection_event(
                                 log_path,
@@ -1164,39 +1153,23 @@ impl crate::app::App {
                             );
                         }
 
-                        // Log to PCAP sidecar file if PCAP export is enabled
                         if let Some(pcap_path) = &pcap_export_path {
                             log_pcap_connection(pcap_path, conn);
                         }
-
-                        // Log cleanup reason for debugging
-                        let conn_timeout = conn.get_timeout();
-                        let idle_time = now.duration_since(conn.last_activity).unwrap_or_default();
-                        debug!(
-                            "Cleanup: Removing {} connection {} (idle: {:?}, timeout: {:?}, state: {})",
-                            conn.protocol,
-                            key,
-                            idle_time,
-                            conn_timeout,
-                            conn.state()
-                        );
                     }
 
                     should_keep
                 });
 
-                // Insert archived connections into historic map
                 for (key, conn) in to_archive {
                     historic_connections.insert(key, conn);
                 }
 
-                // Enforce MAX_HISTORIC_CONNECTIONS by evicting oldest-closed first
                 if historic_connections.len() > MAX_HISTORIC_CONNECTIONS {
                     let mut entries: Vec<(String, SystemTime)> = historic_connections
                         .iter()
                         .map(|entry| {
-                            let closed =
-                                entry.value().closed_at.unwrap_or(entry.value().created_at);
+                            let closed = entry.value().closed_at.unwrap_or(entry.value().created_at);
                             (entry.key().clone(), closed)
                         })
                         .collect();
@@ -1207,22 +1180,10 @@ impl crate::app::App {
                     }
                 }
 
-                // Clean up QUIC connection ID mappings for removed connections
                 if !removed_keys.is_empty()
                     && let Ok(mut mapping) = QUIC_CONNECTION_MAPPING.lock()
                 {
                     mapping.retain(|_, conn_key| !removed_keys.contains(conn_key));
-                    debug!(
-                        "Cleaned up QUIC mappings for {} removed connections",
-                        removed_keys.len()
-                    );
-                }
-
-                if removed > 0 {
-                    debug!(
-                        "Removed {} inactive connections and cleaned up QUIC mappings",
-                        removed
-                    );
                 }
 
                 thread::sleep(Duration::from_secs(5));
