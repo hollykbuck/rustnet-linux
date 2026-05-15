@@ -21,20 +21,22 @@ pub type Terminal<B> = ratatui::Terminal<B>;
 /// Application UI State
 pub struct UIState {
     pub selected_tab: usize,
-    pub details_view_mode: DetailsViewMode,
     pub selected_connection_key: Option<String>,
     pub selected_service_key: Option<String>,
     pub selected_device_mac: Option<String>,
     pub selected_interface: Option<String>,
     pub show_interface_modal: bool,
+    pub show_connection_modal: bool,
     pub selected_route_index: Option<usize>,
     pub show_route_modal: bool,
     pub show_device_modal: bool,
     pub show_service_modal: bool,
     pub selected_group: Option<String>,
+    pub service_selected_group: Option<String>,
     pub scroll_offset: usize,
     pub grouped_scroll_offset: usize,
     pub services_scroll_offset: usize,
+    pub service_grouped_scroll_offset: usize,
     pub devices_scroll_offset: usize,
     pub interfaces_scroll_offset: usize,
     pub routes_scroll_offset: usize,
@@ -44,9 +46,12 @@ pub struct UIState {
     pub show_hostnames: bool,
     pub show_historic: bool,
     pub sort_column: SortColumn,
+    pub service_sort_column: ServiceSortColumn,
     pub sort_ascending: bool,
     pub grouping_enabled: bool,
+    pub service_grouping_enabled: bool,
     pub expanded_groups: HashSet<String>,
+    pub service_expanded_groups: HashSet<String>,
     pub filter_mode: bool,
     pub filter_query: String,
     pub filter_cursor_position: usize,
@@ -57,11 +62,26 @@ pub struct UIState {
     pub last_click: Option<(u16, u16, Instant)>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum DetailsViewMode {
-    Connection,
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ServiceSortColumn {
+    Protocol,
+    LocalAddress,
     Service,
-    Device,
+    Process,
+    #[default]
+    Connections,
+}
+
+impl ServiceSortColumn {
+    pub fn next(self) -> Self {
+        match self {
+            Self::Protocol => Self::LocalAddress,
+            Self::LocalAddress => Self::Service,
+            Self::Service => Self::Process,
+            Self::Process => Self::Connections,
+            Self::Connections => Self::Protocol,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
@@ -150,24 +170,48 @@ pub enum GroupedRow<'a> {
     },
 }
 
+/// Aggregated stats for a service process group
+#[derive(Debug, Clone, Default)]
+pub struct ServiceProcessGroupStats {
+    pub listener_count: usize,
+    pub total_active_connections: usize,
+}
+
+/// A row in the grouped services display
+#[derive(Debug, Clone)]
+pub enum ServiceGroupedRow<'a> {
+    Group {
+        process_name: String,
+        stats: ServiceProcessGroupStats,
+        expanded: bool,
+    },
+    Service {
+        process_name: String,
+        listener: &'a crate::network::types::Listener,
+        is_last_in_group: bool,
+    },
+}
+
 impl Default for UIState {
     fn default() -> Self {
         Self {
             selected_tab: 0,
-            details_view_mode: DetailsViewMode::Connection,
             selected_connection_key: None,
             selected_service_key: None,
             selected_device_mac: None,
             selected_interface: None,
             show_interface_modal: false,
+            show_connection_modal: false,
             selected_route_index: None,
             show_route_modal: false,
             show_device_modal: false,
             show_service_modal: false,
             selected_group: None,
+            service_selected_group: None,
             scroll_offset: 0,
             grouped_scroll_offset: 0,
             services_scroll_offset: 0,
+            service_grouped_scroll_offset: 0,
             devices_scroll_offset: 0,
             interfaces_scroll_offset: 0,
             routes_scroll_offset: 0,
@@ -177,9 +221,12 @@ impl Default for UIState {
             show_hostnames: true,
             show_historic: false,
             sort_column: SortColumn::CreatedAt,
+            service_sort_column: ServiceSortColumn::default(),
             sort_ascending: true,
             grouping_enabled: false,
+            service_grouping_enabled: false,
             expanded_groups: HashSet::new(),
+            service_expanded_groups: HashSet::new(),
             filter_mode: false,
             filter_query: String::new(),
             filter_cursor_position: 0,
@@ -260,6 +307,7 @@ pub fn draw(
     ui_state: &UIState,
     connections: &[crate::network::types::Connection],
     grouped_rows: Option<&[GroupedRow]>,
+    service_grouped_rows: Option<&[ServiceGroupedRow]>,
     stats: &crate::app::AppStats,
     click_regions: &mut ClickableRegions,
 ) -> Result<()> {
@@ -304,35 +352,34 @@ pub fn draw(
             click_regions,
         )?,
         1 => draw_devices(f, app, ui_state, content_area, click_regions)?,
-        2 => draw_services(f, app, ui_state, content_area, click_regions)?,
-        3 => match ui_state.details_view_mode {
-            DetailsViewMode::Connection => draw_connection_details(
-                f,
-                ui_state,
-                connections,
-                content_area,
-                app.get_dns_resolver().as_deref(),
-                click_regions,
-            )?,
-            DetailsViewMode::Device => {
-                draw_device_details(f, ui_state, &app.get_devices(), content_area, click_regions)?
-            }
-            DetailsViewMode::Service => draw_service_details(
-                f,
-                ui_state,
-                &app.get_listeners(),
-                content_area,
-                click_regions,
-            )?,
-        },
-        4 => draw_interface_stats(f, app, ui_state, content_area, click_regions)?,
-        5 => draw_routes_tab(f, app, ui_state, content_area, click_regions)?,
-        6 => draw_graph_tab(f, app, connections, content_area)?,
-        7 => draw_help(f, content_area)?,
+        2 => draw_services(
+            f,
+            app,
+            ui_state,
+            service_grouped_rows,
+            connections,
+            content_area,
+            click_regions,
+        )?,
+        3 => draw_interface_stats(f, app, ui_state, content_area, click_regions)?,
+        4 => draw_routes_tab(f, app, ui_state, content_area, click_regions)?,
+        5 => draw_graph_tab(f, app, connections, content_area)?,
+        6 => draw_help(f, content_area)?,
         _ => {}
     }
 
     draw_status_bar(f, ui_state, connections.len(), chunks[2]);
+
+    if ui_state.show_connection_modal {
+        draw_connection_modal(
+            f,
+            ui_state,
+            connections,
+            app.get_dns_resolver().as_deref(),
+            click_regions,
+        )?;
+    }
+
     Ok(())
 }
 
@@ -341,7 +388,6 @@ fn draw_tabs(f: &mut Frame, ui_state: &UIState, area: Rect, click_regions: &mut 
         "Overview",
         "Devices",
         "Services",
-        "Details",
         "Interfaces",
         "Routes",
         "Graph",
@@ -714,45 +760,82 @@ impl UIState {
         }
     }
     pub fn cycle_sort_column(&mut self) {
-        self.sort_column = self.sort_column.next(self.has_geoip);
-        self.sort_ascending = self.sort_column.default_direction();
+        if self.selected_tab == 2 {
+            self.service_sort_column = self.service_sort_column.next();
+        } else {
+            self.sort_column = self.sort_column.next(self.has_geoip);
+            self.sort_ascending = self.sort_column.default_direction();
+        }
     }
     pub fn toggle_sort_direction(&mut self) {
         self.sort_ascending = !self.sort_ascending;
     }
     pub fn reset_view(&mut self) {
         self.grouping_enabled = false;
+        self.service_grouping_enabled = false;
         self.expanded_groups.clear();
+        self.service_expanded_groups.clear();
         self.selected_group = None;
+        self.service_selected_group = None;
         self.sort_column = SortColumn::default();
+        self.service_sort_column = ServiceSortColumn::default();
         self.sort_ascending = true;
         self.filter_query.clear();
         self.filter_mode = false;
         self.show_historic = false;
     }
     pub fn toggle_grouping(&mut self) {
-        self.grouping_enabled = !self.grouping_enabled;
-        if self.grouping_enabled {
-            self.selected_group = None;
+        if self.selected_tab == 2 {
+            self.service_grouping_enabled = !self.service_grouping_enabled;
+            if self.service_grouping_enabled {
+                self.service_selected_group = None;
+            }
+        } else {
+            self.grouping_enabled = !self.grouping_enabled;
+            if self.grouping_enabled {
+                self.selected_group = None;
+            }
         }
     }
     pub fn toggle_group_expansion(&mut self) {
-        if let Some(ref g) = self.selected_group {
-            if self.expanded_groups.contains(g) {
-                self.expanded_groups.remove(g);
-            } else {
-                self.expanded_groups.insert(g.clone());
+        if self.selected_tab == 2 {
+            if let Some(ref g) = self.service_selected_group {
+                if self.service_expanded_groups.contains(g) {
+                    self.service_expanded_groups.remove(g);
+                } else {
+                    self.service_expanded_groups.insert(g.clone());
+                }
+            }
+        } else {
+            if let Some(ref g) = self.selected_group {
+                if self.expanded_groups.contains(g) {
+                    self.expanded_groups.remove(g);
+                } else {
+                    self.expanded_groups.insert(g.clone());
+                }
             }
         }
     }
     pub fn expand_selected_group(&mut self) {
-        if let Some(ref g) = self.selected_group {
-            self.expanded_groups.insert(g.clone());
+        if self.selected_tab == 2 {
+            if let Some(ref g) = self.service_selected_group {
+                self.service_expanded_groups.insert(g.clone());
+            }
+        } else {
+            if let Some(ref g) = self.selected_group {
+                self.expanded_groups.insert(g.clone());
+            }
         }
     }
     pub fn collapse_selected_group(&mut self) {
-        if let Some(ref g) = self.selected_group {
-            self.expanded_groups.remove(g);
+        if self.selected_tab == 2 {
+            if let Some(ref g) = self.service_selected_group {
+                self.service_expanded_groups.remove(g);
+            }
+        } else {
+            if let Some(ref g) = self.selected_group {
+                self.expanded_groups.remove(g);
+            }
         }
     }
     pub fn get_selected_grouped_index(&self, rows: &[GroupedRow]) -> Option<usize> {
@@ -783,6 +866,36 @@ impl UIState {
         }
         Some(0)
     }
+
+    pub fn get_selected_service_grouped_index(&self, rows: &[ServiceGroupedRow]) -> Option<usize> {
+        if rows.is_empty() {
+            return None;
+        }
+        if let Some(ref k) = self.selected_service_key
+            && let Some(p) = rows.iter().position(|r| {
+                if let ServiceGroupedRow::Service { listener, .. } = r {
+                    format!("{}:{}", listener.protocol, listener.local_addr) == *k
+                } else {
+                    false
+                }
+            })
+        {
+            return Some(p);
+        }
+        if let Some(ref g) = self.service_selected_group
+            && let Some(p) = rows.iter().position(|r| {
+                if let ServiceGroupedRow::Group { process_name, .. } = r {
+                    process_name == g
+                } else {
+                    false
+                }
+            })
+        {
+            return Some(p);
+        }
+        Some(0)
+    }
+
     pub fn set_selected_grouped_by_index(&mut self, rows: &[GroupedRow], index: usize) {
         if let Some(row) = rows.get(index) {
             match row {
@@ -801,6 +914,26 @@ impl UIState {
             }
         }
     }
+
+    pub fn set_selected_service_grouped_by_index(&mut self, rows: &[ServiceGroupedRow], index: usize) {
+        if let Some(row) = rows.get(index) {
+            match row {
+                ServiceGroupedRow::Group { process_name, .. } => {
+                    self.service_selected_group = Some(process_name.clone());
+                    self.selected_service_key = None;
+                }
+                ServiceGroupedRow::Service {
+                    process_name,
+                    listener,
+                    ..
+                } => {
+                    self.selected_service_key = Some(format!("{}:{}", listener.protocol, listener.local_addr));
+                    self.service_selected_group = Some(process_name.clone());
+                }
+            }
+        }
+    }
+
     pub fn move_selection_up_grouped(&mut self, rows: &[GroupedRow]) {
         let idx = self.get_selected_grouped_index(rows).unwrap_or(0);
         self.set_selected_grouped_by_index(
@@ -812,6 +945,19 @@ impl UIState {
             },
         );
     }
+
+    pub fn move_service_selection_up_grouped(&mut self, rows: &[ServiceGroupedRow]) {
+        let idx = self.get_selected_service_grouped_index(rows).unwrap_or(0);
+        self.set_selected_service_grouped_by_index(
+            rows,
+            if idx > 0 {
+                idx - 1
+            } else {
+                rows.len().saturating_sub(1)
+            },
+        );
+    }
+
     pub fn move_selection_down_grouped(&mut self, rows: &[GroupedRow]) {
         let idx = self.get_selected_grouped_index(rows).unwrap_or(0);
         self.set_selected_grouped_by_index(
@@ -823,14 +969,29 @@ impl UIState {
             },
         );
     }
+
+    pub fn move_service_selection_down_grouped(&mut self, rows: &[ServiceGroupedRow]) {
+        let idx = self.get_selected_service_grouped_index(rows).unwrap_or(0);
+        self.set_selected_service_grouped_by_index(
+            rows,
+            if idx < rows.len().saturating_sub(1) {
+                idx + 1
+            } else {
+                0
+            },
+        );
+    }
+
     pub fn move_selection_page_up_grouped(&mut self, rows: &[GroupedRow], size: usize) {
         let idx = self.get_selected_grouped_index(rows).unwrap_or(0);
         self.set_selected_grouped_by_index(rows, idx.saturating_sub(size));
     }
+
     pub fn move_selection_page_down_grouped(&mut self, rows: &[GroupedRow], size: usize) {
         let idx = self.get_selected_grouped_index(rows).unwrap_or(0);
         self.set_selected_grouped_by_index(rows, (idx + size).min(rows.len().saturating_sub(1)));
     }
+
     pub fn ensure_valid_grouped_selection(&mut self, rows: &[GroupedRow]) {
         if (self.selected_group.is_none() || self.get_selected_grouped_index(rows).is_none())
             && !rows.is_empty()
@@ -838,8 +999,29 @@ impl UIState {
             self.set_selected_grouped_by_index(rows, 0);
         }
     }
+
+    pub fn ensure_valid_service_selection(&mut self, listeners: &[crate::network::types::Listener]) {
+        if (self.selected_service_key.is_none() || self.get_selected_service_index(listeners).is_none())
+            && !listeners.is_empty()
+        {
+            self.set_selected_service_by_index(listeners, 0);
+        }
+    }
+
+    pub fn ensure_valid_service_grouped_selection(&mut self, rows: &[ServiceGroupedRow]) {
+        if (self.service_selected_group.is_none() || self.get_selected_service_grouped_index(rows).is_none())
+            && !rows.is_empty()
+        {
+            self.set_selected_service_grouped_by_index(rows, 0);
+        }
+    }
+
     pub fn is_group_selected(&self) -> bool {
         self.selected_group.is_some() && self.selected_connection_key.is_none()
+    }
+
+    pub fn is_service_group_selected(&self) -> bool {
+        self.service_selected_group.is_some() && self.selected_service_key.is_none()
     }
 }
 
@@ -896,6 +1078,57 @@ pub fn compute_grouped_rows<'a>(
                 rows.push(GroupedRow::Connection {
                     process_name: name.clone(),
                     connection: c,
+                    is_last_in_group: i == count - 1,
+                });
+            }
+        }
+    }
+    rows
+}
+
+pub fn compute_service_grouped_rows<'a>(
+    listeners: &'a [crate::network::types::Listener],
+    expanded: &HashSet<String>,
+) -> Vec<ServiceGroupedRow<'a>> {
+    use std::collections::HashMap;
+    let mut groups: HashMap<String, Vec<&crate::network::types::Listener>> = HashMap::new();
+    for l in listeners {
+        let k = l
+            .process_name
+            .clone()
+            .unwrap_or_else(|| "<unknown>".to_string());
+        groups.entry(k).or_default().push(l);
+    }
+    let mut stats: Vec<(
+        String,
+        ServiceProcessGroupStats,
+        Vec<&crate::network::types::Listener>,
+    )> = groups
+        .into_iter()
+        .map(|(name, listeners)| {
+            let mut s = ServiceProcessGroupStats::default();
+            s.listener_count = listeners.len();
+            for l in &listeners {
+                s.total_active_connections += l.active_connections;
+            }
+            (name, s, listeners)
+        })
+        .collect();
+    stats.sort_by_key(|a| a.0.to_lowercase());
+    let mut rows = Vec::new();
+    for (name, s, listeners) in stats {
+        let exp = expanded.contains(&name);
+        rows.push(ServiceGroupedRow::Group {
+            process_name: name.clone(),
+            stats: s,
+            expanded: exp,
+        });
+        if exp {
+            let count = listeners.len();
+            for (i, l) in listeners.into_iter().enumerate() {
+                rows.push(ServiceGroupedRow::Service {
+                    process_name: name.clone(),
+                    listener: l,
                     is_last_in_group: i == count - 1,
                 });
             }

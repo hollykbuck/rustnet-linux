@@ -116,6 +116,10 @@ pub fn row_highlight() -> Style {
     )
 }
 
+pub fn group_header() -> Style {
+    style_if_colored(Style::default().bg(Color::Rgb(30, 34, 42)))
+}
+
 pub fn status_bar_default() -> Style {
     style_if_colored(Style::default().bg(Color::DarkGray).fg(Color::White))
 }

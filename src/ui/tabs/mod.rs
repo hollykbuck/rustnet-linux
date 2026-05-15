@@ -7,7 +7,7 @@ pub mod overview;
 pub mod routes;
 pub mod services;
 
-pub use details::{draw_connection_details, draw_device_details, draw_service_details};
+pub use details::draw_connection_modal;
 pub use devices::draw_devices;
 pub use graph::draw_graph_tab;
 pub use help::draw_help;

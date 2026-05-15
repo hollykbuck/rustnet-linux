@@ -18,6 +18,29 @@ use crate::network::types::{
     RttTracker,
 };
 
+pub fn sort_listeners(
+    listeners: &mut [crate::network::types::Listener],
+    column: crate::ui::ServiceSortColumn,
+    ascending: bool,
+) {
+    use crate::ui::ServiceSortColumn;
+
+    listeners.sort_by(|a, b| {
+        let (ord, default_asc) = match column {
+            ServiceSortColumn::Protocol => (a.protocol.cmp(&b.protocol), true),
+            ServiceSortColumn::LocalAddress => (a.local_addr.cmp(&b.local_addr), true),
+            ServiceSortColumn::Service => (a.service_name.cmp(&b.service_name), true),
+            ServiceSortColumn::Process => (a.process_name.cmp(&b.process_name), true),
+            ServiceSortColumn::Connections => (a.active_connections.cmp(&b.active_connections), false),
+        };
+        if ascending == default_asc {
+            ord
+        } else {
+            ord.reverse()
+        }
+    });
+}
+
 /// Sort connections based on the specified column and direction
 pub fn sort_connections(
     connections: &mut [Connection],

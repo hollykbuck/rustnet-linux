@@ -314,6 +314,31 @@ impl App {
             .clone()
     }
 
+    /// Get filtered listeners based on a query string
+    pub fn get_filtered_listeners(&self, query: &str) -> Vec<Listener> {
+        let listeners = self.get_listeners();
+        if query.is_empty() {
+            return listeners;
+        }
+
+        let query = query.to_lowercase();
+        listeners
+            .into_iter()
+            .filter(|l| {
+                l.process_name
+                    .as_ref()
+                    .map(|n| n.to_lowercase().contains(&query))
+                    .unwrap_or(false)
+                    || l.service_name
+                        .as_ref()
+                        .map(|n| n.to_lowercase().contains(&query))
+                        .unwrap_or(false)
+                    || l.local_addr.to_string().contains(&query)
+                    || l.protocol.to_string().to_lowercase().contains(&query)
+            })
+            .collect()
+    }
+
     /// Get a snapshot of system routing table entries
     pub fn get_routes(&self) -> Vec<RouteEntry> {
         self.routes.read().expect("routes lock poisoned").clone()

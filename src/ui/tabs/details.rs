@@ -1,9 +1,22 @@
 use crate::network::dns::DnsResolver;
-use crate::network::types::{Connection, Device, Listener};
+use crate::network::types::Connection;
 use crate::ui::*;
 use ratatui::widgets::{Paragraph, Wrap};
 
 const DETAIL_LABEL_WIDTH: usize = 22;
+
+pub fn draw_connection_modal(
+    f: &mut Frame,
+    ui_state: &UIState,
+    connections: &[Connection],
+    dns_resolver: Option<&DnsResolver>,
+    click_regions: &mut ClickableRegions,
+) -> anyhow::Result<()> {
+    use crate::ui::components::{centered_rect, Clear};
+    let area = centered_rect(60, 60, f.area());
+    f.render_widget(Clear, area);
+    draw_connection_details(f, ui_state, connections, area, dns_resolver, click_regions)
+}
 
 pub fn draw_connection_details(
     f: &mut Frame,
@@ -214,32 +227,4 @@ fn register_detail_clicks(
             );
         }
     }
-}
-
-pub fn draw_device_details(
-    f: &mut Frame,
-    _ui_state: &UIState,
-    devices: &[Device],
-    area: Rect,
-    _click_regions: &mut ClickableRegions,
-) -> anyhow::Result<()> {
-    if devices.is_empty() {
-        return Ok(());
-    }
-    f.render_widget(Paragraph::new("Device details placeholder"), area);
-    Ok(())
-}
-
-pub fn draw_service_details(
-    f: &mut Frame,
-    _ui_state: &UIState,
-    listeners: &[Listener],
-    area: Rect,
-    _click_regions: &mut ClickableRegions,
-) -> anyhow::Result<()> {
-    if listeners.is_empty() {
-        return Ok(());
-    }
-    f.render_widget(Paragraph::new("Service details placeholder"), area);
-    Ok(())
 }
