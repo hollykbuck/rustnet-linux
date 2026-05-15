@@ -38,8 +38,15 @@ fn update_tcp_state(current_state: TcpState, flags: &TcpFlags, is_outgoing: bool
         (TcpState::SynSent, true, true, false, false) if !is_outgoing => TcpState::Established,
         (TcpState::SynReceived, false, true, false, false) if is_outgoing => TcpState::Established,
 
-        // This might happen if we start parsing connections after the SYN-ACK
+        // Handle mid-stream capture or common handshake variations from Unknown state
+        // 1. If we see a SYN+ACK from an unknown state, it's either SynReceived (they sent SYN) or SynSent (we sent SYN)
+        // For simplicity, if we see SYN+ACK, we're already halfway to Established.
+        (TcpState::Unknown, true, true, false, false) => TcpState::Established, 
+        
+        // 2. If we see a plain ACK from an unknown state, we've likely missed the handshake
         (TcpState::Unknown, false, true, false, false) => TcpState::Established,
+        
+        // 3. If we see an ACK+FIN, it's terminating but we missed the start
         (TcpState::Unknown, false, true, true, false) => TcpState::Established,
 
         // Connection termination - normal close
