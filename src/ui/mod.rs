@@ -378,7 +378,7 @@ pub fn draw(
             ui_state,
             connections,
             grouped_rows,
-            &devices,
+            devices,
             stats,
             content_area,
             click_regions,

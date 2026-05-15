@@ -106,10 +106,10 @@ pub fn parse_v6(
     let mut protocol_state = ProtocolState::Icmp { icmp_type, icmp_id };
 
     // Handle NDP (Neighbor Discovery Protocol) types
-    if icmp_type >= 133 && icmp_type <= 137 {
-        if let Some(ndp) = parse_ndp(transport_data, &params) {
-            protocol_state = ProtocolState::Ndp(ndp);
-        }
+    if (133..=137).contains(&icmp_type)
+        && let Some(ndp) = parse_ndp(transport_data, &params)
+    {
+        protocol_state = ProtocolState::Ndp(ndp);
     }
 
     Some(ParsedPacket {
@@ -161,9 +161,9 @@ fn parse_ndp(data: &[u8], params: &TransportParams) -> Option<NdpInfo> {
             }
 
             match opt_type {
-                1 => {
+                1
                     // Source Link-layer Address
-                    if opt_len >= 8 {
+                    if opt_len >= 8 => {
                         source_mac = Some(format!(
                             "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                             data[offset + 2],
@@ -174,10 +174,9 @@ fn parse_ndp(data: &[u8], params: &TransportParams) -> Option<NdpInfo> {
                             data[offset + 7]
                         ));
                     }
-                }
-                2 => {
+                2
                     // Target Link-layer Address
-                    if opt_len >= 8 {
+                    if opt_len >= 8 => {
                         target_mac = Some(format!(
                             "{:02x}:{:02x}:{:02x}:{:02x}:{:02x}:{:02x}",
                             data[offset + 2],
@@ -188,7 +187,6 @@ fn parse_ndp(data: &[u8], params: &TransportParams) -> Option<NdpInfo> {
                             data[offset + 7]
                         ));
                     }
-                }
                 _ => {}
             }
             offset += opt_len;

@@ -10,7 +10,6 @@ use log::debug;
 use std::net::IpAddr;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread;
 use std::time::{Duration, Instant};
 
 /// Resolution state for a cached entry

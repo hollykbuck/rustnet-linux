@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, LazyLock, Mutex};
-use std::time::{Duration, Instant, SystemTime};
+use std::time::{Instant, SystemTime};
 
 use crate::app::logging::log_connection_event;
 use crate::app::types::AppStats;
@@ -12,8 +12,7 @@ use crate::network::dns::DnsResolver;
 use crate::network::oui::OuiLookup;
 use crate::network::parser::ParsedPacket;
 use crate::network::types::{
-    ApplicationProtocol, ArpOperation, Connection, Device, DpiInfo, NdpOperation, Protocol,
-    ProtocolState,
+    ApplicationProtocol, ArpOperation, Connection, Device, DpiInfo, NdpOperation, ProtocolState,
 };
 
 /// Global mapping for QUIC connection IDs to connection keys.
@@ -74,10 +73,10 @@ pub fn update_connection(
             c.protocol_state = parsed.protocol_state.clone();
 
             // Log state transitions
-            if old_state != c.protocol_state {
-                if let Some(log_path) = json_log_path {
-                    log_connection_event(log_path, "state_change", c, None, dns_resolver);
-                }
+            if old_state != c.protocol_state
+                && let Some(log_path) = json_log_path
+            {
+                log_connection_event(log_path, "state_change", c, None, dns_resolver);
             }
 
             // Update DPI info if available
@@ -156,7 +155,7 @@ pub fn update_device(
 
     // Helper to update or create a device entry.
     // `force` bypasses the scope check (used for explicit ARP mappings).
-    let mut upsert_device = |ip: IpAddr, mac: Option<String>, is_sent: bool, force: bool| {
+    let upsert_device = |ip: IpAddr, mac: Option<String>, is_sent: bool, force: bool| {
         // Skip multicast and broadcast IPs
         if ip.is_multicast() || ip.is_unspecified() {
             return;
@@ -243,10 +242,10 @@ pub fn update_device(
                         _ => String::new(),
                     };
 
-                    if let Some(name) = name_from_protocol {
-                        if d.hostname.is_none() {
-                            d.hostname = Some(name);
-                        }
+                    if let Some(name) = name_from_protocol
+                        && d.hostname.is_none()
+                    {
+                        d.hostname = Some(name);
                     }
 
                     if !detail.is_empty() {
@@ -366,10 +365,10 @@ pub fn update_device(
         }
 
         // For Neighbor Advertisement, the target address binding is definitive
-        if ndp.operation == NdpOperation::NeighborAdvertisement {
-            if let Some(target_mac) = &ndp.target_mac {
-                upsert_device(ndp.target_ip, Some(target_mac.clone()), false, true);
-            }
+        if ndp.operation == NdpOperation::NeighborAdvertisement
+            && let Some(target_mac) = &ndp.target_mac
+        {
+            upsert_device(ndp.target_ip, Some(target_mac.clone()), false, true);
         }
     } else {
         // For IP protocols, use the local and remote endpoints from the packet.

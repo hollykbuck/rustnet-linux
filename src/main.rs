@@ -52,7 +52,7 @@ async fn main() -> Result<()> {
 
     // Set up terminal
     let backend = CrosstermBackend::new(io::stdout());
-    let mut terminal = ui::setup_terminal(backend)?;
+    let terminal = ui::setup_terminal(backend)?;
     info!("Terminal UI initialized");
 
     // Create and start the application

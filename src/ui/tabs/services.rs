@@ -508,10 +508,10 @@ fn draw_listeners_table(
 
     let mut state = ratatui::widgets::TableState::default();
     if ui_state.service_grouping_enabled {
-        if let Some(grouped) = service_grouped_rows {
-            if let Some(selected_index) = ui_state.get_selected_service_grouped_index(grouped) {
-                state.select(Some(selected_index.saturating_sub(scroll_offset)));
-            }
+        if let Some(grouped) = service_grouped_rows
+            && let Some(selected_index) = ui_state.get_selected_service_grouped_index(grouped)
+        {
+            state.select(Some(selected_index.saturating_sub(scroll_offset)));
         }
     } else if let Some(selected_index) = ui_state.get_selected_service_index(&listeners_sorted) {
         state.select(Some(selected_index.saturating_sub(scroll_offset)));
