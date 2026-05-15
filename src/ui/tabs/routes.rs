@@ -146,9 +146,10 @@ pub fn draw_routes_tab(
 
     if ui_state.show_route_modal
         && let Some(idx) = ui_state.selected_route_index
-            && let Some(Some(route)) = display_routes.get(idx) {
-                draw_route_modal(f, route);
-            }
+        && let Some(Some(route)) = display_routes.get(idx)
+    {
+        draw_route_modal(f, route);
+    }
 
     Ok(())
 }

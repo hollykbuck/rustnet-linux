@@ -160,16 +160,14 @@ impl DnsResolver {
 
                             // Perform DNS lookup (this is blocking, so use spawn_blocking)
                             let cache_clone = Arc::clone(&cache);
-                            let _ = tokio::task::spawn_blocking(move || {
-                                match lookup_addr(&ip) {
-                                    Ok(hostname) => {
-                                        debug!("Resolved {} -> {}", ip, hostname);
-                                        cache_clone.insert(ip, CachedHostname::resolved(hostname));
-                                    }
-                                    Err(e) => {
-                                        debug!("Failed to resolve {}: {}", ip, e);
-                                        cache_clone.insert(ip, CachedHostname::failed());
-                                    }
+                            let _ = tokio::task::spawn_blocking(move || match lookup_addr(&ip) {
+                                Ok(hostname) => {
+                                    debug!("Resolved {} -> {}", ip, hostname);
+                                    cache_clone.insert(ip, CachedHostname::resolved(hostname));
+                                }
+                                Err(e) => {
+                                    debug!("Failed to resolve {}: {}", ip, e);
+                                    cache_clone.insert(ip, CachedHostname::failed());
                                 }
                             })
                             .await;

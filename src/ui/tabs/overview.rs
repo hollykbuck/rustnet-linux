@@ -1,5 +1,7 @@
 use crate::app::{App, AppStats};
-use crate::network::types::{ApplicationProtocol, Connection, Device, Protocol, ProtocolState, TcpState};
+use crate::network::types::{
+    ApplicationProtocol, Connection, Device, Protocol, ProtocolState, TcpState,
+};
 use crate::ui::*;
 use ratatui::widgets::{Cell, Paragraph, Row, Table, Wrap};
 
@@ -174,9 +176,7 @@ fn draw_connections_list(
                     .iter()
                     .find(|d| d.ips.contains(&conn.local_addr.ip()))
                     .and_then(|d| d.hostname.clone())
-                    .or_else(|| {
-                        dns_resolver.and_then(|r| r.get_hostname(&conn.local_addr.ip()))
-                    })
+                    .or_else(|| dns_resolver.and_then(|r| r.get_hostname(&conn.local_addr.ip())))
             } else {
                 None
             };
@@ -198,9 +198,7 @@ fn draw_connections_list(
                     .iter()
                     .find(|d| d.ips.contains(&conn.remote_addr.ip()))
                     .and_then(|d| d.hostname.clone())
-                    .or_else(|| {
-                        dns_resolver.and_then(|r| r.get_hostname(&conn.remote_addr.ip()))
-                    })
+                    .or_else(|| dns_resolver.and_then(|r| r.get_hostname(&conn.remote_addr.ip())))
             } else {
                 None
             };
@@ -398,10 +396,8 @@ fn draw_grouped_connections_list(
                         Span::styled(prefix, fg(muted())),
                         Span::raw(connection.protocol.to_string()),
                     ])),
-                    Cell::from(local_addr)
-                        .style(style_if_colored(field_local_addr())),
-                    Cell::from(remote_addr)
-                        .style(style_if_colored(field_remote_addr())),
+                    Cell::from(local_addr).style(style_if_colored(field_local_addr())),
+                    Cell::from(remote_addr).style(style_if_colored(field_remote_addr())),
                 ];
                 if show_location {
                     cells.push(Cell::from("-"));

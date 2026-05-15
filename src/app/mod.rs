@@ -429,9 +429,10 @@ impl App {
         let current = self.get_current_interface()?;
         for iface in pnet_datalink::interfaces() {
             if iface.name == current
-                && let Some(ip_network) = iface.ips.into_iter().next() {
-                    return Some(ip_network.ip());
-                }
+                && let Some(ip_network) = iface.ips.into_iter().next()
+            {
+                return Some(ip_network.ip());
+            }
         }
         None
     }

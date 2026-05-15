@@ -99,10 +99,24 @@ impl crate::app::App {
         self.start_capture_thread(packet_tx)?;
 
         // Start multiple packet processing threads
-        let num_processors = thread::available_parallelism()
+        // On low-core systems, 1-2 threads are usually enough and reduce context switching.
+        // For a 2C/4T system like i5-7200U, this will now spawn 2 threads instead of 4.
+        let available = thread::available_parallelism()
             .map(|n| n.get())
-            .unwrap_or(4)
-            .min(4);
+            .unwrap_or(4);
+
+        let num_processors = if available <= 2 {
+            1
+        } else if available <= 4 {
+            2
+        } else {
+            4
+        };
+
+        info!(
+            "Spawning {} packet processing threads (available cores: {})",
+            num_processors, available
+        );
 
         for i in 0..num_processors {
             self.start_packet_processor(i, packet_rx.clone(), connections.clone());
@@ -1079,7 +1093,6 @@ impl crate::app::App {
         Ok(())
     }
 
-
     /// Start cleanup task to remove old connections
     fn start_cleanup_thread(
         &self,
@@ -1156,7 +1169,8 @@ impl crate::app::App {
                     let mut entries: Vec<(String, SystemTime)> = historic_connections
                         .iter()
                         .map(|entry| {
-                            let closed = entry.value().closed_at.unwrap_or(entry.value().created_at);
+                            let closed =
+                                entry.value().closed_at.unwrap_or(entry.value().created_at);
                             (entry.key().clone(), closed)
                         })
                         .collect();

@@ -45,9 +45,15 @@ pub fn draw_services(
                 ServiceSortColumn::LocalAddress => (a.local_addr.cmp(&b.local_addr), true),
                 ServiceSortColumn::Service => (a.service_name.cmp(&b.service_name), true),
                 ServiceSortColumn::Process => (a.process_name.cmp(&b.process_name), true),
-                ServiceSortColumn::Connections => (a.active_connections.cmp(&b.active_connections), false),
+                ServiceSortColumn::Connections => {
+                    (a.active_connections.cmp(&b.active_connections), false)
+                }
             };
-            if ui_state.sort_ascending == default_asc { ord } else { ord.reverse() }
+            if ui_state.sort_ascending == default_asc {
+                ord
+            } else {
+                ord.reverse()
+            }
         });
 
         if let Some(idx) = ui_state.get_selected_service_index(&listeners_sorted)
@@ -61,7 +67,7 @@ pub fn draw_services(
 }
 
 fn draw_service_modal(f: &mut Frame, listener: &Listener, connections: &[Connection]) {
-    use crate::ui::components::{centered_rect, Clear};
+    use crate::ui::components::{Clear, centered_rect};
     let area = centered_rect(80, 70, f.area());
     f.render_widget(Clear, area);
 
@@ -138,7 +144,8 @@ fn draw_service_modal(f: &mut Frame, listener: &Listener, connections: &[Connect
         .iter()
         .filter(|c| {
             c.protocol == listener.protocol
-                && (c.local_addr == listener.local_addr || c.local_addr.port() == listener.local_addr.port())
+                && (c.local_addr == listener.local_addr
+                    || c.local_addr.port() == listener.local_addr.port())
         })
         .collect();
 
@@ -241,7 +248,7 @@ fn draw_services_summary(f: &mut Frame, listeners: &[Listener], area: Rect) {
 
     let network_facing = listeners
         .iter()
-        .filter(|l| !l.local_addr.ip().is_loopback())
+        .filter(|l| l.protocol == Protocol::Tcp && !l.local_addr.ip().is_loopback())
         .count();
     let localhost_only = tcp_listeners.saturating_sub(network_facing);
     let exposure_pct = if tcp_listeners > 0 {
@@ -321,7 +328,7 @@ fn draw_listeners_table(
         " Conns",
     ];
 
-    let mut header_cells: Vec<Cell> = titles
+    let header_cells: Vec<Cell> = titles
         .iter()
         .enumerate()
         .map(|(i, title)| {
@@ -334,11 +341,12 @@ fn draw_listeners_table(
             };
 
             if i == sort_idx {
-                let indicator = if ui_state.sort_ascending { " ▲" } else { " ▼" };
-                Cell::from(Line::from(vec![
-                    Span::raw(*title),
-                    Span::raw(indicator),
-                ]))
+                let indicator = if ui_state.sort_ascending {
+                    " ▲"
+                } else {
+                    " ▼"
+                };
+                Cell::from(Line::from(vec![Span::raw(*title), Span::raw(indicator)]))
             } else {
                 Cell::from(*title)
             }
@@ -355,9 +363,15 @@ fn draw_listeners_table(
             ServiceSortColumn::LocalAddress => (a.local_addr.cmp(&b.local_addr), true),
             ServiceSortColumn::Service => (a.service_name.cmp(&b.service_name), true),
             ServiceSortColumn::Process => (a.process_name.cmp(&b.process_name), true),
-            ServiceSortColumn::Connections => (a.active_connections.cmp(&b.active_connections), false),
+            ServiceSortColumn::Connections => {
+                (a.active_connections.cmp(&b.active_connections), false)
+            }
         };
-        if ui_state.sort_ascending == default_asc { ord } else { ord.reverse() }
+        if ui_state.sort_ascending == default_asc {
+            ord
+        } else {
+            ord.reverse()
+        }
     });
 
     let scroll_offset = if ui_state.service_grouping_enabled {
@@ -406,7 +420,11 @@ fn draw_listeners_table(
                     is_last_in_group,
                     ..
                 } => {
-                    let tree_sym = if *is_last_in_group { "└─" } else { "├─" };
+                    let tree_sym = if *is_last_in_group {
+                        "└─"
+                    } else {
+                        "├─"
+                    };
                     let (proto_icon, icon_color) = match listener.protocol {
                         Protocol::Tcp => ("🔑 ", fg(Color::Yellow)),
                         Protocol::Udp => ("🔗 ", fg(Color::Cyan)),
@@ -446,7 +464,8 @@ fn draw_listeners_table(
             .collect()
     } else {
         let window_end = (scroll_offset + visible_rows + 1).min(listeners_sorted.len());
-        let visible_listeners = &listeners_sorted[scroll_offset.min(listeners_sorted.len())..window_end];
+        let visible_listeners =
+            &listeners_sorted[scroll_offset.min(listeners_sorted.len())..window_end];
         visible_listeners
             .iter()
             .map(|l| {

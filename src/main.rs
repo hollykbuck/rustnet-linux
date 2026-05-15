@@ -17,7 +17,7 @@ use crate::app::sandbox::initialize_sandbox;
 use crate::app::{App, Config};
 use crate::ui::run_ui_loop;
 
-#[tokio::main]
+#[tokio::main(flavor = "multi_thread", worker_threads = 2)]
 async fn main() -> Result<()> {
     // Check for required dependencies on Windows
     #[cfg(target_os = "windows")]

@@ -1864,7 +1864,11 @@ impl Device {
     pub fn primary_ip(&self) -> std::net::IpAddr {
         // Since HashSet doesn't guarantee order, and we don't store "last seen per IP",
         // we'll just return an arbitrary one. In practice, most devices have 1 or 2.
-        *self.ips.iter().next().unwrap_or(&std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED))
+        *self
+            .ips
+            .iter()
+            .next()
+            .unwrap_or(&std::net::IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED))
     }
 }
 
@@ -3410,4 +3414,3 @@ mod tests {
         );
     }
 }
-

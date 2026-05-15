@@ -204,4 +204,3 @@ fn parse_ndp(data: &[u8], params: &TransportParams) -> Option<NdpInfo> {
         target_name: None,
     })
 }
-

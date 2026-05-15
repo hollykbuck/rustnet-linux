@@ -40,8 +40,12 @@ where
             } else {
                 app.get_filtered_connections(&ui_state.filter_query)
             };
-            
-            log::debug!("UI tick: is_loading={}, connections={}", app.is_loading(), connections.len());
+
+            log::debug!(
+                "UI tick: is_loading={}, connections={}",
+                app.is_loading(),
+                connections.len()
+            );
             crate::app::state::sort_connections(
                 &mut connections,
                 ui_state.sort_column,
@@ -105,55 +109,120 @@ where
         if ui_state.selected_tab == 0 {
             if ui_state.grouping_enabled {
                 ui_state.ensure_valid_grouped_selection(&grouped_rows);
-                let selected_idx = ui_state.get_selected_grouped_index(&grouped_rows).unwrap_or(0);
-                ui_state.grouped_scroll_offset = compute_scroll_offset(selected_idx, ui_state.grouped_scroll_offset, ui_state.visible_rows, grouped_rows.len());
+                let selected_idx = ui_state
+                    .get_selected_grouped_index(&grouped_rows)
+                    .unwrap_or(0);
+                ui_state.grouped_scroll_offset = compute_scroll_offset(
+                    selected_idx,
+                    ui_state.grouped_scroll_offset,
+                    ui_state.visible_rows,
+                    grouped_rows.len(),
+                );
             } else {
                 ui_state.ensure_valid_selection(&connections);
                 let selected_idx = ui_state.get_selected_index(&connections).unwrap_or(0);
-                ui_state.scroll_offset = compute_scroll_offset(selected_idx, ui_state.scroll_offset, ui_state.visible_rows, connections.len());
+                ui_state.scroll_offset = compute_scroll_offset(
+                    selected_idx,
+                    ui_state.scroll_offset,
+                    ui_state.visible_rows,
+                    connections.len(),
+                );
             }
         } else if ui_state.selected_tab == 1 {
             ui_state.ensure_valid_device_selection(&devices);
             let selected_idx = ui_state.get_selected_device_index(&devices).unwrap_or(0);
-            ui_state.devices_scroll_offset = compute_scroll_offset(selected_idx, ui_state.devices_scroll_offset, ui_state.visible_rows, devices.len());
+            ui_state.devices_scroll_offset = compute_scroll_offset(
+                selected_idx,
+                ui_state.devices_scroll_offset,
+                ui_state.visible_rows,
+                devices.len(),
+            );
         } else if ui_state.selected_tab == 2 {
             if ui_state.service_grouping_enabled {
                 ui_state.ensure_valid_service_grouped_selection(&service_grouped_rows);
-                let selected_idx = ui_state.get_selected_service_grouped_index(&service_grouped_rows).unwrap_or(0);
-                ui_state.service_grouped_scroll_offset = compute_scroll_offset(selected_idx, ui_state.service_grouped_scroll_offset, ui_state.visible_rows, service_grouped_rows.len());
+                let selected_idx = ui_state
+                    .get_selected_service_grouped_index(&service_grouped_rows)
+                    .unwrap_or(0);
+                ui_state.service_grouped_scroll_offset = compute_scroll_offset(
+                    selected_idx,
+                    ui_state.service_grouped_scroll_offset,
+                    ui_state.visible_rows,
+                    service_grouped_rows.len(),
+                );
             } else {
                 ui_state.ensure_valid_service_selection(&listeners);
                 let selected_idx = ui_state.get_selected_service_index(&listeners).unwrap_or(0);
-                ui_state.services_scroll_offset = compute_scroll_offset(selected_idx, ui_state.services_scroll_offset, ui_state.visible_rows, listeners.len());
+                ui_state.services_scroll_offset = compute_scroll_offset(
+                    selected_idx,
+                    ui_state.services_scroll_offset,
+                    ui_state.visible_rows,
+                    listeners.len(),
+                );
             }
         } else if ui_state.selected_tab == 3 {
             let stats = app.get_sorted_interface_stats();
             let selected_idx = ui_state.get_selected_interface_index(&stats).unwrap_or(0);
-            ui_state.interfaces_scroll_offset = compute_scroll_offset(selected_idx, ui_state.interfaces_scroll_offset, ui_state.visible_rows, stats.len());
+            ui_state.interfaces_scroll_offset = compute_scroll_offset(
+                selected_idx,
+                ui_state.interfaces_scroll_offset,
+                ui_state.visible_rows,
+                stats.len(),
+            );
         } else if ui_state.selected_tab == 4 {
             let routes = app.get_routes();
             let selected_idx = ui_state.selected_route_index.unwrap_or(0);
-            ui_state.routes_scroll_offset = compute_scroll_offset(selected_idx, ui_state.routes_scroll_offset, ui_state.visible_rows, routes.len());
+            ui_state.routes_scroll_offset = compute_scroll_offset(
+                selected_idx,
+                ui_state.routes_scroll_offset,
+                ui_state.visible_rows,
+                routes.len(),
+            );
         }
 
         // Draw the UI
         terminal.draw(|f| {
-            let grouped = if ui_state.grouping_enabled { Some(grouped_rows.as_slice()) } else { None };
-            let svc_grouped = if ui_state.service_grouping_enabled { Some(service_grouped_rows.as_slice()) } else { None };
-            if let Err(err) = draw(f, app, &ui_state, &connections, grouped, svc_grouped, &devices, &stats, &mut click_regions) {
+            let grouped = if ui_state.grouping_enabled {
+                Some(grouped_rows.as_slice())
+            } else {
+                None
+            };
+            let svc_grouped = if ui_state.service_grouping_enabled {
+                Some(service_grouped_rows.as_slice())
+            } else {
+                None
+            };
+            if let Err(err) = draw(
+                f,
+                app,
+                &ui_state,
+                &connections,
+                grouped,
+                svc_grouped,
+                &devices,
+                &stats,
+                &mut click_regions,
+            ) {
                 error!("UI draw error: {}", err);
             }
         })?;
 
         // Update visible rows for page navigation based on terminal height
         if let Ok(size) = terminal.size() {
-            let chrome = if ui_state.filter_mode || !ui_state.filter_query.is_empty() { 11 } else { 8 };
+            let chrome = if ui_state.filter_mode || !ui_state.filter_query.is_empty() {
+                11
+            } else {
+                8
+            };
             ui_state.visible_rows = (size.height as usize).saturating_sub(chrome);
         }
 
-        let timeout = tick_rate.checked_sub(last_tick.elapsed()).unwrap_or(Duration::from_secs(0));
+        let timeout = tick_rate
+            .checked_sub(last_tick.elapsed())
+            .unwrap_or(Duration::from_secs(0));
 
-        if let Some((_, time)) = &ui_state.clipboard_message && time.elapsed().as_secs() >= 3 {
+        if let Some((_, time)) = &ui_state.clipboard_message
+            && time.elapsed().as_secs() >= 3
+        {
             ui_state.clipboard_message = None;
         }
 
@@ -161,9 +230,33 @@ where
             let event = crossterm::event::read()?;
             match event {
                 crossterm::event::Event::Mouse(mouse) => {
-                    handle_mouse_event(mouse, &mut ui_state, &click_regions, app, &connections, &grouped_rows, &service_grouped_rows, &listeners, &devices, &mut needs_regroup);
+                    handle_mouse_event(
+                        mouse,
+                        &mut ui_state,
+                        &click_regions,
+                        app,
+                        &connections,
+                        &grouped_rows,
+                        &service_grouped_rows,
+                        &listeners,
+                        &devices,
+                        &mut needs_regroup,
+                    );
                 }
-                crossterm::event::Event::Key(key) if handle_key_event(key, &mut ui_state, app, &connections, &grouped_rows, &service_grouped_rows, &listeners, &devices, &mut needs_data_refresh, &mut needs_regroup)? => {
+                crossterm::event::Event::Key(key)
+                    if handle_key_event(
+                        key,
+                        &mut ui_state,
+                        app,
+                        &connections,
+                        &grouped_rows,
+                        &service_grouped_rows,
+                        &listeners,
+                        &devices,
+                        &mut needs_data_refresh,
+                        &mut needs_regroup,
+                    )? =>
+                {
                     break;
                 }
                 _ => {}
@@ -207,38 +300,61 @@ fn handle_mouse_event(
 
             if let Some(action) = click_regions.hit_test(mouse.column, mouse.row) {
                 match action.clone() {
-                    ClickAction::SwitchTab(tab_idx) => { ui_state.selected_tab = tab_idx; }
+                    ClickAction::SwitchTab(tab_idx) => {
+                        ui_state.selected_tab = tab_idx;
+                    }
                     ClickAction::SelectConnection(conn_idx) => {
                         if ui_state.grouping_enabled {
                             ui_state.set_selected_grouped_by_index(grouped_rows, conn_idx);
                             if is_double_click && let Some(row) = grouped_rows.get(conn_idx) {
                                 match row {
-                                    GroupedRow::Group { .. } => { ui_state.toggle_group_expansion(); *needs_regroup = true; }
-                                    GroupedRow::Connection { .. } => { ui_state.show_connection_modal = true; }
+                                    GroupedRow::Group { .. } => {
+                                        ui_state.toggle_group_expansion();
+                                        *needs_regroup = true;
+                                    }
+                                    GroupedRow::Connection { .. } => {
+                                        ui_state.show_connection_modal = true;
+                                    }
                                 }
                             }
                         } else {
                             ui_state.set_selected_by_index(connections, conn_idx);
-                            if is_double_click { ui_state.show_connection_modal = true; }
+                            if is_double_click {
+                                ui_state.show_connection_modal = true;
+                            }
                         }
                     }
                     ClickAction::SelectService(service_idx) => {
                         if ui_state.service_grouping_enabled {
-                            ui_state.set_selected_service_grouped_by_index(service_grouped_rows, service_idx);
-                            if is_double_click && let Some(row) = service_grouped_rows.get(service_idx) {
+                            ui_state.set_selected_service_grouped_by_index(
+                                service_grouped_rows,
+                                service_idx,
+                            );
+                            if is_double_click
+                                && let Some(row) = service_grouped_rows.get(service_idx)
+                            {
                                 match row {
-                                    ServiceGroupedRow::Group { .. } => { ui_state.toggle_group_expansion(); *needs_regroup = true; }
-                                    ServiceGroupedRow::Service { .. } => { ui_state.show_service_modal = true; }
+                                    ServiceGroupedRow::Group { .. } => {
+                                        ui_state.toggle_group_expansion();
+                                        *needs_regroup = true;
+                                    }
+                                    ServiceGroupedRow::Service { .. } => {
+                                        ui_state.show_service_modal = true;
+                                    }
                                 }
                             }
                         } else {
                             ui_state.set_selected_service_by_index(listeners, service_idx);
-                            if is_double_click { ui_state.show_service_modal = true; }
+                            if is_double_click {
+                                ui_state.show_service_modal = true;
+                            }
                         }
                     }
                     ClickAction::SelectDevice(device_idx) => {
                         ui_state.set_selected_device_by_index(devices, device_idx);
-                        if is_double_click { ui_state.show_device_modal = true; }
+                        if is_double_click {
+                            ui_state.show_device_modal = true;
+                        }
                     }
                     ClickAction::SelectInterface(idx) => {
                         let stats = app.get_sorted_interface_stats();
@@ -249,25 +365,39 @@ fn handle_mouse_event(
                         ui_state.selected_route_index = Some(idx);
                         if ui_state.grouping_enabled && is_double_click {
                             let routes = app.get_routes();
-                            let mut groups: HashMap<String, Vec<crate::network::types::RouteEntry>> = HashMap::new();
-                            for r in routes { groups.entry(r.interface.clone()).or_default().push(r); }
+                            let mut groups: HashMap<
+                                String,
+                                Vec<crate::network::types::RouteEntry>,
+                            > = HashMap::new();
+                            for r in routes {
+                                groups.entry(r.interface.clone()).or_default().push(r);
+                            }
                             let mut group_names: Vec<String> = groups.keys().cloned().collect();
                             group_names.sort_by_key(|n| n.to_lowercase());
                             let mut current_idx = 0;
                             for name in group_names {
                                 if current_idx == idx {
-                                    if ui_state.expanded_groups.contains(&name) { ui_state.expanded_groups.remove(&name); }
-                                    else { ui_state.expanded_groups.insert(name); }
-                                    *needs_regroup = true; return;
+                                    if ui_state.expanded_groups.contains(&name) {
+                                        ui_state.expanded_groups.remove(&name);
+                                    } else {
+                                        ui_state.expanded_groups.insert(name);
+                                    }
+                                    *needs_regroup = true;
+                                    return;
                                 }
                                 current_idx += 1;
                                 if ui_state.expanded_groups.contains(&name) {
                                     let group_routes_len = groups.get(&name).unwrap().len();
-                                    if idx > current_idx && idx < current_idx + group_routes_len { ui_state.show_route_modal = true; return; }
+                                    if idx > current_idx && idx < current_idx + group_routes_len {
+                                        ui_state.show_route_modal = true;
+                                        return;
+                                    }
                                     current_idx += group_routes_len;
                                 }
                             }
-                        } else if is_double_click { ui_state.show_route_modal = true; }
+                        } else if is_double_click {
+                            ui_state.show_route_modal = true;
+                        }
                     }
                     ClickAction::CopyField { label, value } => {
                         copy_to_clipboard(&value, &format!("{}: {}", label, value), ui_state, app);
@@ -276,33 +406,61 @@ fn handle_mouse_event(
             }
         }
         MouseEventKind::ScrollUp => {
-            if let Some(scroll_area) = click_regions.scroll_area && mouse.column >= scroll_area.x && mouse.column < scroll_area.x + scroll_area.width && mouse.row >= scroll_area.y && mouse.row < scroll_area.y + scroll_area.height {
+            if let Some(scroll_area) = click_regions.scroll_area
+                && mouse.column >= scroll_area.x
+                && mouse.column < scroll_area.x + scroll_area.width
+                && mouse.row >= scroll_area.y
+                && mouse.row < scroll_area.y + scroll_area.height
+            {
                 if ui_state.selected_tab == 0 {
-                    if ui_state.grouping_enabled { ui_state.move_selection_up_grouped(grouped_rows); }
-                    else { ui_state.move_selection_up(connections); }
-                } else if ui_state.selected_tab == 1 { ui_state.move_device_selection_up(devices); }
-                else if ui_state.selected_tab == 2 {
-                    if ui_state.service_grouping_enabled { ui_state.move_service_selection_up_grouped(service_grouped_rows); }
-                    else { ui_state.move_service_selection_up(listeners); }
+                    if ui_state.grouping_enabled {
+                        ui_state.move_selection_up_grouped(grouped_rows);
+                    } else {
+                        ui_state.move_selection_up(connections);
+                    }
+                } else if ui_state.selected_tab == 1 {
+                    ui_state.move_device_selection_up(devices);
+                } else if ui_state.selected_tab == 2 {
+                    if ui_state.service_grouping_enabled {
+                        ui_state.move_service_selection_up_grouped(service_grouped_rows);
+                    } else {
+                        ui_state.move_service_selection_up(listeners);
+                    }
                 } else if ui_state.selected_tab == 3 {
                     let stats = app.get_sorted_interface_stats();
                     ui_state.move_interface_selection_up(&stats);
-                } else if ui_state.selected_tab == 4 { ui_state.move_route_selection_up(app.get_routes().len()); }
+                } else if ui_state.selected_tab == 4 {
+                    ui_state.move_route_selection_up(app.get_routes().len());
+                }
             }
         }
         MouseEventKind::ScrollDown => {
-            if let Some(scroll_area) = click_regions.scroll_area && mouse.column >= scroll_area.x && mouse.column < scroll_area.x + scroll_area.width && mouse.row >= scroll_area.y && mouse.row < scroll_area.y + scroll_area.height {
+            if let Some(scroll_area) = click_regions.scroll_area
+                && mouse.column >= scroll_area.x
+                && mouse.column < scroll_area.x + scroll_area.width
+                && mouse.row >= scroll_area.y
+                && mouse.row < scroll_area.y + scroll_area.height
+            {
                 if ui_state.selected_tab == 0 {
-                    if ui_state.grouping_enabled { ui_state.move_selection_down_grouped(grouped_rows); }
-                    else { ui_state.move_selection_down(connections); }
-                } else if ui_state.selected_tab == 1 { ui_state.move_device_selection_down(devices); }
-                else if ui_state.selected_tab == 2 {
-                    if ui_state.service_grouping_enabled { ui_state.move_service_selection_down_grouped(service_grouped_rows); }
-                    else { ui_state.move_service_selection_down(listeners); }
+                    if ui_state.grouping_enabled {
+                        ui_state.move_selection_down_grouped(grouped_rows);
+                    } else {
+                        ui_state.move_selection_down(connections);
+                    }
+                } else if ui_state.selected_tab == 1 {
+                    ui_state.move_device_selection_down(devices);
+                } else if ui_state.selected_tab == 2 {
+                    if ui_state.service_grouping_enabled {
+                        ui_state.move_service_selection_down_grouped(service_grouped_rows);
+                    } else {
+                        ui_state.move_service_selection_down(listeners);
+                    }
                 } else if ui_state.selected_tab == 3 {
                     let stats = app.get_sorted_interface_stats();
                     ui_state.move_interface_selection_down(&stats);
-                } else if ui_state.selected_tab == 4 { ui_state.move_route_selection_down(app.get_routes().len()); }
+                } else if ui_state.selected_tab == 4 {
+                    ui_state.move_route_selection_down(app.get_routes().len());
+                }
             }
         }
         _ => {}
@@ -322,13 +480,29 @@ fn handle_key_event(
     needs_regroup: &mut bool,
 ) -> Result<bool> {
     use crossterm::event::{KeyCode, KeyEventKind, KeyModifiers};
-    if key.kind != KeyEventKind::Press { return Ok(false); }
+    if key.kind != KeyEventKind::Press {
+        return Ok(false);
+    }
     if ui_state.filter_mode {
         match key.code {
-            KeyCode::Enter => { ui_state.exit_filter_mode(); *needs_data_refresh = true; }
-            KeyCode::Esc => { ui_state.clear_filter(); *needs_data_refresh = true; }
-            KeyCode::Backspace => { ui_state.filter_backspace(); *needs_data_refresh = true; }
-            KeyCode::Delete if ui_state.filter_cursor_position < ui_state.filter_query.len() => { ui_state.filter_query.remove(ui_state.filter_cursor_position); *needs_data_refresh = true; }
+            KeyCode::Enter => {
+                ui_state.exit_filter_mode();
+                *needs_data_refresh = true;
+            }
+            KeyCode::Esc => {
+                ui_state.clear_filter();
+                *needs_data_refresh = true;
+            }
+            KeyCode::Backspace => {
+                ui_state.filter_backspace();
+                *needs_data_refresh = true;
+            }
+            KeyCode::Delete if ui_state.filter_cursor_position < ui_state.filter_query.len() => {
+                ui_state
+                    .filter_query
+                    .remove(ui_state.filter_cursor_position);
+                *needs_data_refresh = true;
+            }
             KeyCode::Left => ui_state.filter_cursor_left(),
             KeyCode::Right => ui_state.filter_cursor_right(),
             KeyCode::Home => ui_state.filter_cursor_position = 0,
@@ -336,148 +510,335 @@ fn handle_key_event(
             KeyCode::Up => ui_state.move_selection_up(connections),
             KeyCode::Down => ui_state.move_selection_down(connections),
             KeyCode::Char(c) => {
-                if c == 'h' && key.modifiers.contains(KeyModifiers::CONTROL) { ui_state.filter_backspace(); }
-                else { ui_state.filter_add_char(c); *needs_data_refresh = true; }
+                if c == 'h' && key.modifiers.contains(KeyModifiers::CONTROL) {
+                    ui_state.filter_backspace();
+                } else {
+                    ui_state.filter_add_char(c);
+                    *needs_data_refresh = true;
+                }
             }
             _ => {}
         }
     } else {
         match (key.code, key.modifiers) {
-            (KeyCode::Char('/'), _) if ui_state.selected_tab == 0 || ui_state.selected_tab == 1 || ui_state.selected_tab == 2 || ui_state.selected_tab == 4 => { ui_state.enter_filter_mode(); }
-            (KeyCode::Char('q'), _) => { if ui_state.quit_confirmation { return Ok(true); } else { ui_state.quit_confirmation = true; } }
+            (KeyCode::Char('/'), _)
+                if ui_state.selected_tab == 0
+                    || ui_state.selected_tab == 1
+                    || ui_state.selected_tab == 2
+                    || ui_state.selected_tab == 4 =>
+            {
+                ui_state.enter_filter_mode();
+            }
+            (KeyCode::Char('q'), _) => {
+                if ui_state.quit_confirmation {
+                    return Ok(true);
+                } else {
+                    ui_state.quit_confirmation = true;
+                }
+            }
             (KeyCode::Char('c'), KeyModifiers::CONTROL) => return Ok(true),
-            (KeyCode::Tab, KeyModifiers::NONE) => { ui_state.selected_tab = (ui_state.selected_tab + 1) % 7; }
-            (KeyCode::BackTab, _) | (KeyCode::Tab, KeyModifiers::SHIFT) => { ui_state.selected_tab = if ui_state.selected_tab == 0 { 6 } else { ui_state.selected_tab - 1 }; }
-            (KeyCode::Char('h'), _) => { ui_state.show_help = !ui_state.show_help; ui_state.selected_tab = if ui_state.show_help { 6 } else { 0 }; }
-            (KeyCode::Char('i'), _) | (KeyCode::Char('I'), _) => { ui_state.selected_tab = if ui_state.selected_tab == 3 { 0 } else { 3 }; }
-            (KeyCode::Char('r'), KeyModifiers::CONTROL) => { ui_state.selected_tab = if ui_state.selected_tab == 4 { 0 } else { 4 }; }
+            (KeyCode::Tab, KeyModifiers::NONE) => {
+                ui_state.selected_tab = (ui_state.selected_tab + 1) % 7;
+            }
+            (KeyCode::BackTab, _) | (KeyCode::Tab, KeyModifiers::SHIFT) => {
+                ui_state.selected_tab = if ui_state.selected_tab == 0 {
+                    6
+                } else {
+                    ui_state.selected_tab - 1
+                };
+            }
+            (KeyCode::Char('h'), _) => {
+                ui_state.show_help = !ui_state.show_help;
+                ui_state.selected_tab = if ui_state.show_help { 6 } else { 0 };
+            }
+            (KeyCode::Char('i'), _) | (KeyCode::Char('I'), _) => {
+                ui_state.selected_tab = if ui_state.selected_tab == 3 { 0 } else { 3 };
+            }
+            (KeyCode::Char('r'), KeyModifiers::CONTROL) => {
+                ui_state.selected_tab = if ui_state.selected_tab == 4 { 0 } else { 4 };
+            }
             (KeyCode::Up, _) | (KeyCode::Char('k'), _) => {
-                if ui_state.selected_tab == 1 { ui_state.move_device_selection_up(devices); }
-                else if ui_state.selected_tab == 2 {
-                    if ui_state.service_grouping_enabled { ui_state.move_service_selection_up_grouped(service_grouped_rows); }
-                    else { ui_state.move_service_selection_up(listeners); }
+                if ui_state.selected_tab == 1 {
+                    ui_state.move_device_selection_up(devices);
+                } else if ui_state.selected_tab == 2 {
+                    if ui_state.service_grouping_enabled {
+                        ui_state.move_service_selection_up_grouped(service_grouped_rows);
+                    } else {
+                        ui_state.move_service_selection_up(listeners);
+                    }
                 } else if ui_state.selected_tab == 3 {
                     let stats = app.get_sorted_interface_stats();
                     ui_state.move_interface_selection_up(&stats);
-                } else if ui_state.selected_tab == 4 { ui_state.move_route_selection_up(app.get_routes().len()); }
-                else if ui_state.grouping_enabled { ui_state.move_selection_up_grouped(grouped_rows); }
-                else { ui_state.move_selection_up(connections); }
+                } else if ui_state.selected_tab == 4 {
+                    ui_state.move_route_selection_up(app.get_routes().len());
+                } else if ui_state.grouping_enabled {
+                    ui_state.move_selection_up_grouped(grouped_rows);
+                } else {
+                    ui_state.move_selection_up(connections);
+                }
             }
             (KeyCode::Down, _) | (KeyCode::Char('j'), _) => {
-                if ui_state.selected_tab == 1 { ui_state.move_device_selection_down(devices); }
-                else if ui_state.selected_tab == 2 {
-                    if ui_state.service_grouping_enabled { ui_state.move_service_selection_down_grouped(service_grouped_rows); }
-                    else { ui_state.move_service_selection_down(listeners); }
+                if ui_state.selected_tab == 1 {
+                    ui_state.move_device_selection_down(devices);
+                } else if ui_state.selected_tab == 2 {
+                    if ui_state.service_grouping_enabled {
+                        ui_state.move_service_selection_down_grouped(service_grouped_rows);
+                    } else {
+                        ui_state.move_service_selection_down(listeners);
+                    }
                 } else if ui_state.selected_tab == 3 {
                     let stats = app.get_sorted_interface_stats();
                     ui_state.move_interface_selection_down(&stats);
-                } else if ui_state.selected_tab == 4 { ui_state.move_route_selection_down(app.get_routes().len()); }
-                else if ui_state.grouping_enabled { ui_state.move_selection_down_grouped(grouped_rows); }
-                else { ui_state.move_selection_down(connections); }
+                } else if ui_state.selected_tab == 4 {
+                    ui_state.move_route_selection_down(app.get_routes().len());
+                } else if ui_state.grouping_enabled {
+                    ui_state.move_selection_down_grouped(grouped_rows);
+                } else {
+                    ui_state.move_selection_down(connections);
+                }
             }
             (KeyCode::PageUp, _) | (KeyCode::Char('b'), KeyModifiers::CONTROL) => {
                 let page_size = ui_state.visible_rows.max(1);
-                if ui_state.selected_tab == 1 { for _ in 0..page_size { ui_state.move_device_selection_up(devices); } }
-                else if ui_state.selected_tab == 2 {
-                    if ui_state.service_grouping_enabled { for _ in 0..page_size { ui_state.move_service_selection_up_grouped(service_grouped_rows); } }
-                    else { for _ in 0..page_size { ui_state.move_service_selection_up(listeners); } }
-                } else if ui_state.grouping_enabled { ui_state.move_selection_page_up_grouped(grouped_rows, page_size); }
-                else { ui_state.move_selection_page_up(connections, page_size); }
+                if ui_state.selected_tab == 1 {
+                    for _ in 0..page_size {
+                        ui_state.move_device_selection_up(devices);
+                    }
+                } else if ui_state.selected_tab == 2 {
+                    if ui_state.service_grouping_enabled {
+                        for _ in 0..page_size {
+                            ui_state.move_service_selection_up_grouped(service_grouped_rows);
+                        }
+                    } else {
+                        for _ in 0..page_size {
+                            ui_state.move_service_selection_up(listeners);
+                        }
+                    }
+                } else if ui_state.grouping_enabled {
+                    ui_state.move_selection_page_up_grouped(grouped_rows, page_size);
+                } else {
+                    ui_state.move_selection_page_up(connections, page_size);
+                }
             }
             (KeyCode::PageDown, _) | (KeyCode::Char('f'), KeyModifiers::CONTROL) => {
                 let page_size = ui_state.visible_rows.max(1);
-                if ui_state.selected_tab == 1 { for _ in 0..page_size { ui_state.move_device_selection_down(devices); } }
-                else if ui_state.selected_tab == 2 {
-                    if ui_state.service_grouping_enabled { for _ in 0..page_size { ui_state.move_service_selection_down_grouped(service_grouped_rows); } }
-                    else { for _ in 0..page_size { ui_state.move_service_selection_down(listeners); } }
-                } else if ui_state.grouping_enabled { ui_state.move_selection_page_down_grouped(grouped_rows, page_size); }
-                else { ui_state.move_selection_page_down(connections, page_size); }
+                if ui_state.selected_tab == 1 {
+                    for _ in 0..page_size {
+                        ui_state.move_device_selection_down(devices);
+                    }
+                } else if ui_state.selected_tab == 2 {
+                    if ui_state.service_grouping_enabled {
+                        for _ in 0..page_size {
+                            ui_state.move_service_selection_down_grouped(service_grouped_rows);
+                        }
+                    } else {
+                        for _ in 0..page_size {
+                            ui_state.move_service_selection_down(listeners);
+                        }
+                    }
+                } else if ui_state.grouping_enabled {
+                    ui_state.move_selection_page_down_grouped(grouped_rows, page_size);
+                } else {
+                    ui_state.move_selection_page_down(connections, page_size);
+                }
             }
             (KeyCode::Char('g'), KeyModifiers::NONE) => {
-                if ui_state.selected_tab == 1 { ui_state.set_selected_device_by_index(devices, 0); }
-                else if ui_state.selected_tab == 2 {
-                    if ui_state.service_grouping_enabled { ui_state.set_selected_service_grouped_by_index(service_grouped_rows, 0); }
-                    else { ui_state.set_selected_service_by_index(listeners, 0); }
-                } else { ui_state.move_selection_to_first(connections); }
+                if ui_state.selected_tab == 1 {
+                    ui_state.set_selected_device_by_index(devices, 0);
+                } else if ui_state.selected_tab == 2 {
+                    if ui_state.service_grouping_enabled {
+                        ui_state.set_selected_service_grouped_by_index(service_grouped_rows, 0);
+                    } else {
+                        ui_state.set_selected_service_by_index(listeners, 0);
+                    }
+                } else {
+                    ui_state.move_selection_to_first(connections);
+                }
             }
             (KeyCode::Char('G'), _) | (KeyCode::Char('g'), KeyModifiers::SHIFT) => {
-                if ui_state.selected_tab == 1 { ui_state.set_selected_device_by_index(devices, devices.len().saturating_sub(1)); }
-                else if ui_state.selected_tab == 2 {
-                    if ui_state.service_grouping_enabled { ui_state.set_selected_service_grouped_by_index(service_grouped_rows, service_grouped_rows.len().saturating_sub(1)); }
-                    else { ui_state.set_selected_service_by_index(listeners, listeners.len().saturating_sub(1)); }
-                } else { ui_state.move_selection_to_last(connections); }
+                if ui_state.selected_tab == 1 {
+                    ui_state.set_selected_device_by_index(devices, devices.len().saturating_sub(1));
+                } else if ui_state.selected_tab == 2 {
+                    if ui_state.service_grouping_enabled {
+                        ui_state.set_selected_service_grouped_by_index(
+                            service_grouped_rows,
+                            service_grouped_rows.len().saturating_sub(1),
+                        );
+                    } else {
+                        ui_state.set_selected_service_by_index(
+                            listeners,
+                            listeners.len().saturating_sub(1),
+                        );
+                    }
+                } else {
+                    ui_state.move_selection_to_last(connections);
+                }
             }
             (KeyCode::Enter, _) => {
-                if ui_state.show_interface_modal { ui_state.show_interface_modal = false; }
-                else if ui_state.show_connection_modal { ui_state.show_connection_modal = false; }
-                else if ui_state.show_route_modal { ui_state.show_route_modal = false; }
-                else if ui_state.show_device_modal { ui_state.show_device_modal = false; }
-                else if ui_state.show_service_modal { ui_state.show_service_modal = false; }
-                else if ui_state.selected_tab == 3 { ui_state.show_interface_modal = true; }
-                else if ui_state.selected_tab == 4 { ui_state.show_route_modal = true; }
-                else if ui_state.selected_tab == 0 && !connections.is_empty() && !(ui_state.grouping_enabled && ui_state.is_group_selected()) { ui_state.show_connection_modal = true; }
-                else if ui_state.selected_tab == 1 && !devices.is_empty() { ui_state.show_device_modal = true; }
-                else if ui_state.selected_tab == 2 && !listeners.is_empty() {
-                    if ui_state.service_grouping_enabled && ui_state.is_service_group_selected() { ui_state.toggle_group_expansion(); *needs_regroup = true; }
-                    else { ui_state.show_service_modal = true; }
+                if ui_state.show_interface_modal {
+                    ui_state.show_interface_modal = false;
+                } else if ui_state.show_connection_modal {
+                    ui_state.show_connection_modal = false;
+                } else if ui_state.show_route_modal {
+                    ui_state.show_route_modal = false;
+                } else if ui_state.show_device_modal {
+                    ui_state.show_device_modal = false;
+                } else if ui_state.show_service_modal {
+                    ui_state.show_service_modal = false;
+                } else if ui_state.selected_tab == 3 {
+                    ui_state.show_interface_modal = true;
+                } else if ui_state.selected_tab == 4 {
+                    ui_state.show_route_modal = true;
+                } else if ui_state.selected_tab == 0
+                    && !connections.is_empty()
+                    && !(ui_state.grouping_enabled && ui_state.is_group_selected())
+                {
+                    ui_state.show_connection_modal = true;
+                } else if ui_state.selected_tab == 1 && !devices.is_empty() {
+                    ui_state.show_device_modal = true;
+                } else if ui_state.selected_tab == 2 && !listeners.is_empty() {
+                    if ui_state.service_grouping_enabled && ui_state.is_service_group_selected() {
+                        ui_state.toggle_group_expansion();
+                        *needs_regroup = true;
+                    } else {
+                        ui_state.show_service_modal = true;
+                    }
                 }
             }
             (KeyCode::Char(' '), _) => {
-                if ui_state.selected_tab == 0 && ui_state.grouping_enabled && ui_state.is_group_selected() { ui_state.toggle_group_expansion(); *needs_regroup = true; }
-                else if ui_state.selected_tab == 2 && ui_state.service_grouping_enabled && ui_state.is_service_group_selected() { ui_state.toggle_group_expansion(); *needs_regroup = true; }
-                else if ui_state.selected_tab == 4 && ui_state.grouping_enabled && let Some(idx) = ui_state.selected_route_index {
-                        let routes = app.get_routes();
-                        let mut groups: HashMap<String, Vec<crate::network::types::RouteEntry>> = HashMap::new();
-                        for r in routes { groups.entry(r.interface.clone()).or_default().push(r); }
-                        let mut group_names: Vec<String> = groups.keys().cloned().collect();
-                        group_names.sort_by_key(|n| n.to_lowercase());
-                        let mut current_idx = 0;
-                        for name in group_names {
-                            if current_idx == idx {
-                                if ui_state.expanded_groups.contains(&name) { ui_state.expanded_groups.remove(&name); }
-                                else { ui_state.expanded_groups.insert(name); }
-                                *needs_regroup = true; break;
+                if ui_state.selected_tab == 0
+                    && ui_state.grouping_enabled
+                    && ui_state.is_group_selected()
+                {
+                    ui_state.toggle_group_expansion();
+                    *needs_regroup = true;
+                } else if ui_state.selected_tab == 2
+                    && ui_state.service_grouping_enabled
+                    && ui_state.is_service_group_selected()
+                {
+                    ui_state.toggle_group_expansion();
+                    *needs_regroup = true;
+                } else if ui_state.selected_tab == 4
+                    && ui_state.grouping_enabled
+                    && let Some(idx) = ui_state.selected_route_index
+                {
+                    let routes = app.get_routes();
+                    let mut groups: HashMap<String, Vec<crate::network::types::RouteEntry>> =
+                        HashMap::new();
+                    for r in routes {
+                        groups.entry(r.interface.clone()).or_default().push(r);
+                    }
+                    let mut group_names: Vec<String> = groups.keys().cloned().collect();
+                    group_names.sort_by_key(|n| n.to_lowercase());
+                    let mut current_idx = 0;
+                    for name in group_names {
+                        if current_idx == idx {
+                            if ui_state.expanded_groups.contains(&name) {
+                                ui_state.expanded_groups.remove(&name);
+                            } else {
+                                ui_state.expanded_groups.insert(name);
                             }
-                            current_idx += 1;
-                            if ui_state.expanded_groups.contains(&name) { current_idx += groups.get(&name).unwrap().len(); }
+                            *needs_regroup = true;
+                            break;
+                        }
+                        current_idx += 1;
+                        if ui_state.expanded_groups.contains(&name) {
+                            current_idx += groups.get(&name).unwrap().len();
                         }
                     }
+                }
             }
-            (KeyCode::Left, _) if ui_state.grouping_enabled || ui_state.service_grouping_enabled => {
-                if ui_state.selected_tab == 0 { ui_state.collapse_selected_group(); *needs_regroup = true; }
-                else if ui_state.selected_tab == 2 { ui_state.collapse_selected_group(); *needs_regroup = true; }
+            (KeyCode::Left, _)
+                if ui_state.grouping_enabled || ui_state.service_grouping_enabled =>
+            {
+                if ui_state.selected_tab == 0 {
+                    ui_state.collapse_selected_group();
+                    *needs_regroup = true;
+                } else if ui_state.selected_tab == 2 {
+                    ui_state.collapse_selected_group();
+                    *needs_regroup = true;
+                }
             }
-            (KeyCode::Right, _) | (KeyCode::Char('l'), _) if ui_state.grouping_enabled || ui_state.service_grouping_enabled => {
-                if ui_state.selected_tab == 0 { ui_state.expand_selected_group(); *needs_regroup = true; }
-                else if ui_state.selected_tab == 2 { ui_state.expand_selected_group(); *needs_regroup = true; }
+            (KeyCode::Right, _) | (KeyCode::Char('l'), _)
+                if ui_state.grouping_enabled || ui_state.service_grouping_enabled =>
+            {
+                if ui_state.selected_tab == 0 {
+                    ui_state.expand_selected_group();
+                    *needs_regroup = true;
+                } else if ui_state.selected_tab == 2 {
+                    ui_state.expand_selected_group();
+                    *needs_regroup = true;
+                }
             }
-            (KeyCode::Char('a'), _) => { ui_state.toggle_grouping(); *needs_regroup = true; }
-            (KeyCode::Char('r'), _) => { let was_historic = ui_state.show_historic; ui_state.reset_view(); if was_historic { app.set_show_historic(false); } *needs_data_refresh = true; }
+            (KeyCode::Char('a'), _) => {
+                ui_state.toggle_grouping();
+                *needs_regroup = true;
+            }
+            (KeyCode::Char('r'), _) => {
+                let was_historic = ui_state.show_historic;
+                ui_state.reset_view();
+                if was_historic {
+                    app.set_show_historic(false);
+                }
+                *needs_data_refresh = true;
+            }
             (KeyCode::Char('p'), _) => ui_state.show_port_numbers = !ui_state.show_port_numbers,
-            (KeyCode::Char('d'), _) if app.is_dns_resolution_enabled() => { ui_state.show_hostnames = !ui_state.show_hostnames }
-            (KeyCode::Char('t'), _) => { ui_state.show_historic = !ui_state.show_historic; app.toggle_show_historic(); *needs_data_refresh = true; }
-            (KeyCode::Char('s'), KeyModifiers::NONE) => { ui_state.cycle_sort_column(); *needs_data_refresh = true; }
-            (KeyCode::Char('S'), _) => { ui_state.toggle_sort_direction(); *needs_data_refresh = true; }
+            (KeyCode::Char('d'), _) if app.is_dns_resolution_enabled() => {
+                ui_state.show_hostnames = !ui_state.show_hostnames
+            }
+            (KeyCode::Char('t'), _) => {
+                ui_state.show_historic = !ui_state.show_historic;
+                app.toggle_show_historic();
+                *needs_data_refresh = true;
+            }
+            (KeyCode::Char('s'), KeyModifiers::NONE) => {
+                ui_state.cycle_sort_column();
+                *needs_data_refresh = true;
+            }
+            (KeyCode::Char('S'), _) => {
+                ui_state.toggle_sort_direction();
+                *needs_data_refresh = true;
+            }
             (KeyCode::Char('c'), _) => {
-                if let Some(selected_idx) = ui_state.get_selected_index(connections) && let Some(conn) = connections.get(selected_idx) {
+                if let Some(selected_idx) = ui_state.get_selected_index(connections)
+                    && let Some(conn) = connections.get(selected_idx)
+                {
                     let remote_addr = conn.remote_addr.to_string();
                     copy_to_clipboard(&remote_addr, &remote_addr, ui_state, app);
                 }
             }
             (KeyCode::Char('x'), _) => {
-                if ui_state.clear_confirmation { app.clear_all_connections(); ui_state.clear_confirmation = false; ui_state.show_historic = false; ui_state.selected_connection_key = None; *needs_data_refresh = true; }
-                else { ui_state.clear_confirmation = true; }
+                if ui_state.clear_confirmation {
+                    app.clear_all_connections();
+                    ui_state.clear_confirmation = false;
+                    ui_state.show_historic = false;
+                    ui_state.selected_connection_key = None;
+                    *needs_data_refresh = true;
+                } else {
+                    ui_state.clear_confirmation = true;
+                }
             }
             (KeyCode::Esc, _) => {
-                if ui_state.show_interface_modal { ui_state.show_interface_modal = false; }
-                else if ui_state.show_connection_modal { ui_state.show_connection_modal = false; }
-                else if ui_state.show_route_modal { ui_state.show_route_modal = false; }
-                else if ui_state.show_device_modal { ui_state.show_device_modal = false; }
-                else if ui_state.show_service_modal { ui_state.show_service_modal = false; }
-                else if !ui_state.filter_query.is_empty() { ui_state.clear_filter(); *needs_data_refresh = true; }
-                else if ui_state.selected_tab != 0 { ui_state.selected_tab = 0; }
+                if ui_state.show_interface_modal {
+                    ui_state.show_interface_modal = false;
+                } else if ui_state.show_connection_modal {
+                    ui_state.show_connection_modal = false;
+                } else if ui_state.show_route_modal {
+                    ui_state.show_route_modal = false;
+                } else if ui_state.show_device_modal {
+                    ui_state.show_device_modal = false;
+                } else if ui_state.show_service_modal {
+                    ui_state.show_service_modal = false;
+                } else if !ui_state.filter_query.is_empty() {
+                    ui_state.clear_filter();
+                    *needs_data_refresh = true;
+                } else if ui_state.selected_tab != 0 {
+                    ui_state.selected_tab = 0;
+                }
             }
-            _ => { ui_state.quit_confirmation = false; ui_state.clear_confirmation = false; }
+            _ => {
+                ui_state.quit_confirmation = false;
+                ui_state.clear_confirmation = false;
+            }
         }
     }
     Ok(false)

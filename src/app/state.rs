@@ -3,17 +3,17 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::sync::atomic::Ordering;
 use std::sync::{Arc, LazyLock, Mutex};
-use std::time::{Duration, SystemTime, Instant};
+use std::time::{Duration, Instant, SystemTime};
 
 use crate::app::logging::log_connection_event;
 use crate::app::types::AppStats;
-use crate::network::bogon::{classify, Scope};
+use crate::network::bogon::{Scope, classify};
 use crate::network::dns::DnsResolver;
 use crate::network::oui::OuiLookup;
 use crate::network::parser::ParsedPacket;
 use crate::network::types::{
-    ApplicationProtocol, ArpOperation, Connection, Device, NdpOperation, Protocol, ProtocolState,
-    DpiInfo,
+    ApplicationProtocol, ArpOperation, Connection, Device, DpiInfo, NdpOperation, Protocol,
+    ProtocolState,
 };
 
 /// Global mapping for QUIC connection IDs to connection keys.
@@ -36,8 +36,8 @@ pub fn update_connection(
 
     // Special handling for QUIC: check for connection migration via CID
     // We check if DPI identified QUIC and use its CID if available
-    let final_key = if let Some(ref dpi) = parsed.dpi_result 
-        && let ApplicationProtocol::Quic(ref info) = dpi.application 
+    let final_key = if let Some(ref dpi) = parsed.dpi_result
+        && let ApplicationProtocol::Quic(ref info) = dpi.application
     {
         let mut mapping = QUIC_CONNECTION_MAPPING.lock().unwrap();
         let mut resolved_key = key.clone();
@@ -418,7 +418,9 @@ pub fn sort_listeners(
             ServiceSortColumn::LocalAddress => (a.local_addr.cmp(&b.local_addr), true),
             ServiceSortColumn::Service => (a.service_name.cmp(&b.service_name), true),
             ServiceSortColumn::Process => (a.process_name.cmp(&b.process_name), true),
-            ServiceSortColumn::Connections => (a.active_connections.cmp(&b.active_connections), false),
+            ServiceSortColumn::Connections => {
+                (a.active_connections.cmp(&b.active_connections), false)
+            }
         };
         if ascending == default_asc {
             ord
@@ -429,11 +431,7 @@ pub fn sort_listeners(
 }
 
 /// Sort devices based on specified criteria
-pub fn sort_devices(
-    devices: &mut [Device],
-    column: crate::ui::DeviceSortColumn,
-    ascending: bool,
-) {
+pub fn sort_devices(devices: &mut [Device], column: crate::ui::DeviceSortColumn, ascending: bool) {
     use crate::ui::DeviceSortColumn;
 
     devices.sort_by(|a, b| {
@@ -467,12 +465,17 @@ pub fn sort_connections(
     connections.sort_by(|a, b| {
         let ordering = match sort_column {
             SortColumn::CreatedAt => a.created_at.cmp(&b.created_at),
-            SortColumn::BandwidthTotal => (a.bytes_sent + a.bytes_received)
-                .cmp(&(b.bytes_sent + b.bytes_received)),
+            SortColumn::BandwidthTotal => {
+                (a.bytes_sent + a.bytes_received).cmp(&(b.bytes_sent + b.bytes_received))
+            }
             SortColumn::Process => a.process_name.cmp(&b.process_name),
             SortColumn::LocalAddress => a.local_addr.cmp(&b.local_addr),
             SortColumn::RemoteAddress => a.remote_addr.cmp(&b.remote_addr),
-            SortColumn::Location => a.geoip_info.as_ref().map(|g| &g.country_code).cmp(&b.geoip_info.as_ref().map(|g| &g.country_code)),
+            SortColumn::Location => a
+                .geoip_info
+                .as_ref()
+                .map(|g| &g.country_code)
+                .cmp(&b.geoip_info.as_ref().map(|g| &g.country_code)),
             SortColumn::Application => {
                 let a_app = a.dpi_info.as_ref().map(|d| d.application.to_string());
                 let b_app = b.dpi_info.as_ref().map(|d| d.application.to_string());
@@ -490,5 +493,3 @@ pub fn sort_connections(
         }
     });
 }
-
-

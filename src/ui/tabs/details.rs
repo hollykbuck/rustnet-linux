@@ -12,7 +12,7 @@ pub fn draw_connection_modal(
     dns_resolver: Option<&DnsResolver>,
     click_regions: &mut ClickableRegions,
 ) -> anyhow::Result<()> {
-    use crate::ui::components::{centered_rect, Clear};
+    use crate::ui::components::{Clear, centered_rect};
     let area = centered_rect(60, 60, f.area());
     f.render_widget(Clear, area);
     draw_connection_details(f, ui_state, connections, area, dns_resolver, click_regions)

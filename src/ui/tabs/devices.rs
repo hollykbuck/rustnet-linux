@@ -24,9 +24,10 @@ pub fn draw_devices(
 
     if ui_state.show_device_modal
         && let Some(idx) = ui_state.get_selected_device_index(devices)
-            && let Some(device) = devices.get(idx) {
-                draw_device_modal(f, device);
-            }
+        && let Some(device) = devices.get(idx)
+    {
+        draw_device_modal(f, device);
+    }
 
     Ok(())
 }
@@ -214,11 +215,12 @@ fn draw_devices_table(
             };
 
             if i == sort_idx {
-                let indicator = if ui_state.sort_ascending { " ▲" } else { " ▼" };
-                Cell::from(Line::from(vec![
-                    Span::raw(*title),
-                    Span::raw(indicator),
-                ]))
+                let indicator = if ui_state.sort_ascending {
+                    " ▲"
+                } else {
+                    " ▼"
+                };
+                Cell::from(Line::from(vec![Span::raw(*title), Span::raw(indicator)]))
             } else {
                 Cell::from(*title)
             }

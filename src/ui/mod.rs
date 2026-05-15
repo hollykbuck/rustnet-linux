@@ -950,7 +950,11 @@ impl UIState {
         }
     }
 
-    pub fn set_selected_service_grouped_by_index(&mut self, rows: &[ServiceGroupedRow], index: usize) {
+    pub fn set_selected_service_grouped_by_index(
+        &mut self,
+        rows: &[ServiceGroupedRow],
+        index: usize,
+    ) {
         if let Some(row) = rows.get(index) {
             match row {
                 ServiceGroupedRow::Group { process_name, .. } => {
@@ -962,7 +966,8 @@ impl UIState {
                     listener,
                     ..
                 } => {
-                    self.selected_service_key = Some(format!("{}:{}", listener.protocol, listener.local_addr));
+                    self.selected_service_key =
+                        Some(format!("{}:{}", listener.protocol, listener.local_addr));
                     self.service_selected_group = Some(process_name.clone());
                 }
             }
@@ -1035,8 +1040,12 @@ impl UIState {
         }
     }
 
-    pub fn ensure_valid_service_selection(&mut self, listeners: &[crate::network::types::Listener]) {
-        if (self.selected_service_key.is_none() || self.get_selected_service_index(listeners).is_none())
+    pub fn ensure_valid_service_selection(
+        &mut self,
+        listeners: &[crate::network::types::Listener],
+    ) {
+        if (self.selected_service_key.is_none()
+            || self.get_selected_service_index(listeners).is_none())
             && !listeners.is_empty()
         {
             self.set_selected_service_by_index(listeners, 0);
@@ -1044,7 +1053,8 @@ impl UIState {
     }
 
     pub fn ensure_valid_service_grouped_selection(&mut self, rows: &[ServiceGroupedRow]) {
-        if (self.service_selected_group.is_none() || self.get_selected_service_grouped_index(rows).is_none())
+        if (self.service_selected_group.is_none()
+            || self.get_selected_service_grouped_index(rows).is_none())
             && !rows.is_empty()
         {
             self.set_selected_service_grouped_by_index(rows, 0);
