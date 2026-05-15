@@ -14,7 +14,8 @@ pub mod state;
 pub mod threads;
 pub mod types;
 
-use crate::app::logging::log_pcap_connection;
+use crate::app::logging::{LogEvent, log_pcap_connection, run_logging_task};
+use crossbeam::channel::{Sender, Receiver, bounded};
 use crate::app::state::QUIC_CONNECTION_MAPPING;
 use crate::network::dns::DnsResolver;
 use crate::network::geoip::{GeoIpConfig, GeoIpResolver};
@@ -98,6 +99,10 @@ pub struct App {
 
     /// GeoIP resolver for location/ASN lookups
     pub(crate) geoip_resolver: Option<Arc<GeoIpResolver>>,
+
+    /// Async logging channel
+    pub(crate) log_tx: Sender<LogEvent>,
+    pub(crate) log_rx: Mutex<Option<Receiver<LogEvent>>>,
 
     /// Sandbox status (Linux Landlock / macOS Seatbelt / Windows restricted token)
     #[cfg(any(
@@ -183,6 +188,8 @@ impl App {
             }
         };
 
+        let (log_tx, log_rx) = bounded(2000);
+
         Ok(Self {
             config,
             should_stop: Arc::new(AtomicBool::new(false)),
@@ -209,6 +216,8 @@ impl App {
             devices: Arc::new(DashMap::new()),
             dns_resolver,
             geoip_resolver,
+            log_tx,
+            log_rx: Mutex::new(Some(log_rx)),
             #[cfg(any(
                 target_os = "linux",
                 target_os = "windows",
@@ -558,9 +567,7 @@ impl App {
         }
 
         // Clear QUIC connection ID mappings
-        if let Ok(mut mapping) = QUIC_CONNECTION_MAPPING.lock() {
-            mapping.clear();
-        }
+        QUIC_CONNECTION_MAPPING.clear();
 
         // Reset statistics counters
         self.stats.packets_processed.store(0, Ordering::Relaxed);
@@ -591,11 +598,14 @@ impl App {
             let with_pids = connections.iter().filter(|c| c.pid.is_some()).count();
 
             for conn in connections.iter() {
-                log_pcap_connection(pcap_path, conn);
+                let _ = self.log_tx.try_send(LogEvent::Pcap {
+                    pcap_path: pcap_path.clone(),
+                    connection: conn.clone(),
+                });
             }
 
             info!(
-                "Wrote {} remaining connections ({} with PIDs) to JSONL",
+                "Queued {} remaining connections ({} with PIDs) for JSONL logging",
                 count, with_pids
             );
         }

@@ -56,6 +56,18 @@ impl crate::app::App {
         self.start_geoip_enrichment_thread(connections.clone())?;
         info!("GeoIP enrichment task spawned");
 
+        // Start async logging task
+        if let Some(log_rx) = self.log_rx.lock().unwrap().take() {
+            let should_stop = Arc::clone(&self.should_stop);
+            thread::Builder::new()
+                .name("logging".to_string())
+                .spawn(move || {
+                    crate::app::logging::run_logging_task(log_rx, should_stop);
+                })
+                .expect("Failed to spawn logging thread");
+            info!("Async logging thread started");
+        }
+
         // Start snapshot provider for UI
         self.start_snapshot_provider(connections.clone(), Arc::clone(&self.historic_connections))?;
         info!("Snapshot provider task spawned");
@@ -119,7 +131,7 @@ impl crate::app::App {
         );
 
         for i in 0..num_processors {
-            self.start_packet_processor(i, packet_rx.clone(), connections.clone());
+            self.start_packet_processor(i, packet_rx.clone(), connections.clone(), self.log_tx.clone());
         }
 
         Ok(())
@@ -360,6 +372,7 @@ impl crate::app::App {
         id: usize,
         packet_rx: Receiver<Vec<Vec<u8>>>,
         connections: Arc<DashMap<String, Connection>>,
+        log_tx: Sender<crate::app::logging::LogEvent>,
     ) {
         let should_stop = Arc::clone(&self.should_stop);
         let stats = Arc::clone(&self.stats);
@@ -445,6 +458,7 @@ impl crate::app::App {
                                     &json_log_path,
                                     &rtt_tracker,
                                     dns_resolver.as_deref(),
+                                    &log_tx,
                                 );
 
                                 // Update device discovery tracker
@@ -1103,6 +1117,7 @@ impl crate::app::App {
         let json_log_path = self.config.json_log_file.clone();
         let pcap_export_path = self.config.pcap_export_file.clone();
         let dns_resolver = self.dns_resolver.clone();
+        let log_tx = self.log_tx.clone();
 
         tokio::spawn(async move {
             info!("Cleanup task started");
@@ -1144,17 +1159,21 @@ impl crate::app::App {
                             .ok();
 
                         if let Some(log_path) = &json_log_path {
-                            log_connection_event(
-                                log_path,
-                                "connection_closed",
-                                conn,
+                            let _ = log_tx.try_send(crate::app::logging::LogEvent::Connection {
+                                json_log_path: log_path.clone(),
+                                event_type: "connection_closed".to_string(),
+                                connection: conn.clone(),
                                 duration_secs,
-                                dns_resolver.as_deref(),
-                            );
+                                source_hostname: dns_resolver.as_deref().and_then(|r| r.get_hostname(&conn.local_addr.ip())),
+                                dest_hostname: dns_resolver.as_deref().and_then(|r| r.get_hostname(&conn.remote_addr.ip())),
+                            });
                         }
 
                         if let Some(pcap_path) = &pcap_export_path {
-                            log_pcap_connection(pcap_path, conn);
+                            let _ = log_tx.try_send(crate::app::logging::LogEvent::Pcap {
+                                pcap_path: pcap_path.clone(),
+                                connection: conn.clone(),
+                            });
                         }
                     }
 
@@ -1181,10 +1200,8 @@ impl crate::app::App {
                     }
                 }
 
-                if !removed_keys.is_empty()
-                    && let Ok(mut mapping) = QUIC_CONNECTION_MAPPING.lock()
-                {
-                    mapping.retain(|_, conn_key| !removed_keys.contains(conn_key));
+                if !removed_keys.is_empty() {
+                    QUIC_CONNECTION_MAPPING.retain(|_, conn_key| !removed_keys.contains(conn_key));
                 }
 
                 tokio::time::sleep(Duration::from_secs(5)).await;

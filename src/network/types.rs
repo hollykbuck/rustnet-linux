@@ -1570,6 +1570,9 @@ pub struct RateTracker {
     // Keep track of last byte counts for delta calculation
     last_bytes_sent: u64,
     last_bytes_received: u64,
+    // Rolling sums for O(1) rate calculation
+    sum_sent: u64,
+    sum_received: u64,
 }
 
 impl RateTracker {
@@ -1587,6 +1590,8 @@ impl RateTracker {
             max_samples: 20_000,
             last_bytes_sent: 0,
             last_bytes_received: 0,
+            sum_sent: 0,
+            sum_received: 0,
         }
     }
 
@@ -1638,7 +1643,9 @@ impl RateTracker {
 
         while let Some(oldest) = samples.front() {
             if oldest.timestamp < cutoff_time {
-                samples.pop_front();
+                let oldest_sample = samples.pop_front().unwrap();
+                self.sum_sent = self.sum_sent.saturating_sub(oldest_sample.delta_sent);
+                self.sum_received = self.sum_received.saturating_sub(oldest_sample.delta_received);
             } else {
                 break;
             }
@@ -1646,7 +1653,10 @@ impl RateTracker {
 
         // Limit total samples to prevent memory bloat
         while samples.len() > self.max_samples {
-            samples.pop_front();
+            if let Some(oldest) = samples.pop_front() {
+                self.sum_sent = self.sum_sent.saturating_sub(oldest.delta_sent);
+                self.sum_received = self.sum_received.saturating_sub(oldest.delta_received);
+            }
         }
     }
 
@@ -1662,19 +1672,16 @@ impl RateTracker {
 
     /// Get the incoming rate in bytes per second at a specific timestamp
     fn get_incoming_rate_bps_at(&self, now: Instant) -> f64 {
-        self.calculate_rate_from_deltas_at(now, |sample| sample.delta_received)
+        self.calculate_rate_from_deltas_at(now, true)
     }
 
     /// Get the outgoing rate in bytes per second at a specific timestamp
     fn get_outgoing_rate_bps_at(&self, now: Instant) -> f64 {
-        self.calculate_rate_from_deltas_at(now, |sample| sample.delta_sent)
+        self.calculate_rate_from_deltas_at(now, false)
     }
 
     /// Calculate rate using delta values for accurate sliding window calculation
-    fn calculate_rate_from_deltas_at<F>(&self, now: Instant, delta_getter: F) -> f64
-    where
-        F: Fn(&RateSample) -> u64,
-    {
+    fn calculate_rate_from_deltas_at(&self, now: Instant, is_incoming: bool) -> f64 {
         if self.samples.is_empty() {
             return 0.0;
         }
@@ -1708,11 +1715,14 @@ impl RateTracker {
             return 0.0;
         }
 
-        // Sum ALL deltas in the window - each represents bytes transferred
-        let total_bytes: u64 = self.samples.iter().map(delta_getter).sum();
+        // Use rolling sum instead of iterating
+        let total_bytes = if is_incoming {
+            self.sum_received
+        } else {
+            self.sum_sent
+        };
 
         // Simple sliding window average: total bytes over time span
-        // No decay - just pure average like iftop's 10-second column
         total_bytes as f64 / time_span
     }
 

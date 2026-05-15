@@ -17,8 +17,11 @@ use crate::network::types::{
 
 /// Global mapping for QUIC connection IDs to connection keys.
 /// Used to track QUIC connections as they migrate across client IP/port changes.
-pub static QUIC_CONNECTION_MAPPING: LazyLock<Mutex<HashMap<Vec<u8>, String>>> =
-    LazyLock::new(|| Mutex::new(HashMap::new()));
+pub static QUIC_CONNECTION_MAPPING: LazyLock<DashMap<Vec<u8>, String>> =
+    LazyLock::new(DashMap::new);
+
+use crate::app::logging::LogEvent;
+use crossbeam::channel::Sender;
 
 /// Update connection state based on a parsed packet
 pub fn update_connection(
@@ -28,6 +31,7 @@ pub fn update_connection(
     json_log_path: &Option<String>,
     _rtt_tracker: &Arc<Mutex<crate::network::types::RttTracker>>,
     dns_resolver: Option<&DnsResolver>,
+    log_tx: &Sender<LogEvent>,
 ) {
     let key = parsed.connection_key.clone();
     let now = SystemTime::now();
@@ -38,16 +42,15 @@ pub fn update_connection(
     let final_key = if let Some(ref dpi) = parsed.dpi_result
         && let ApplicationProtocol::Quic(ref info) = dpi.application
     {
-        let mut mapping = QUIC_CONNECTION_MAPPING.lock().unwrap();
         let mut resolved_key = key.clone();
 
         // Try to match CID first (we'll just use connection_id as destination CID for now)
-        if let Some(existing_key) = mapping.get(&info.connection_id) {
+        if let Some(existing_key) = QUIC_CONNECTION_MAPPING.get(&info.connection_id) {
             resolved_key = existing_key.clone();
         }
 
         // Register CID for this connection key
-        mapping.insert(info.connection_id.clone(), resolved_key.clone());
+        QUIC_CONNECTION_MAPPING.insert(info.connection_id.clone(), resolved_key.clone());
         resolved_key
     } else {
         key
@@ -65,7 +68,6 @@ pub fn update_connection(
                 c.packets_received += 1;
             }
 
-            c.update_rates();
             c.last_activity = now;
 
             // Update state (TCP, etc.)
@@ -91,7 +93,7 @@ pub fn update_connection(
             // Log new connection
             stats.connections_tracked.fetch_add(1, Ordering::Relaxed);
 
-            let mut conn = Connection {
+            let conn = Connection {
                 protocol: parsed.protocol,
                 local_addr: parsed.local_addr,
                 remote_addr: parsed.remote_addr,
@@ -128,10 +130,16 @@ pub fn update_connection(
                 initial_rtt: None,
             };
 
-            conn.update_rates();
-
+            // Async log new connection
             if let Some(log_path) = json_log_path {
-                log_connection_event(log_path, "connection_new", &conn, None, dns_resolver);
+                let _ = log_tx.try_send(LogEvent::Connection {
+                    json_log_path: log_path.clone(),
+                    event_type: "connection_new".to_string(),
+                    connection: conn.clone(),
+                    duration_secs: None,
+                    source_hostname: dns_resolver.and_then(|r| r.get_hostname(&conn.local_addr.ip())),
+                    dest_hostname: dns_resolver.and_then(|r| r.get_hostname(&conn.remote_addr.ip())),
+                });
             }
 
             conn

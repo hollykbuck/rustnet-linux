@@ -1,8 +1,28 @@
 use crate::network::dns::DnsResolver;
 use crate::network::types::{ApplicationProtocol, Connection, Protocol};
+use crossbeam::channel::Receiver;
 use serde_json::json;
 use std::fs::{File, OpenOptions};
 use std::io::Write;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+/// Events that can be logged asynchronously
+pub enum LogEvent {
+    Connection {
+        json_log_path: String,
+        event_type: String,
+        connection: Connection,
+        duration_secs: Option<u64>,
+        // We pass the resolved hostnames if available to avoid cloning the resolver
+        source_hostname: Option<String>,
+        dest_hostname: Option<String>,
+    },
+    Pcap {
+        pcap_path: String,
+        connection: Connection,
+    },
+}
 
 /// Open or create a file for appending with restrictive permissions (0o600 on Unix).
 ///
@@ -17,13 +37,50 @@ pub fn open_log_file(path: &str) -> std::io::Result<File> {
     Ok(file)
 }
 
-/// Helper function to log connection events as JSON
-pub fn log_connection_event(
+/// Main loop for the background logging task
+pub fn run_logging_task(
+    receiver: Receiver<LogEvent>,
+    should_stop: Arc<AtomicBool>,
+) {
+    while !should_stop.load(Ordering::Relaxed) || !receiver.is_empty() {
+        match receiver.recv_timeout(std::time::Duration::from_millis(100)) {
+            Ok(LogEvent::Connection {
+                json_log_path,
+                event_type,
+                connection,
+                duration_secs,
+                source_hostname,
+                dest_hostname,
+            }) => {
+                log_connection_event_internal(
+                    &json_log_path,
+                    &event_type,
+                    &connection,
+                    duration_secs,
+                    source_hostname,
+                    dest_hostname,
+                );
+            }
+            Ok(LogEvent::Pcap {
+                pcap_path,
+                connection,
+            }) => {
+                log_pcap_connection_internal(&pcap_path, &connection);
+            }
+            Err(crossbeam::channel::RecvTimeoutError::Timeout) => continue,
+            Err(crossbeam::channel::RecvTimeoutError::Disconnected) => break,
+        }
+    }
+}
+
+/// Helper function to log connection events as JSON (Internal, called by logging task)
+fn log_connection_event_internal(
     json_log_path: &str,
     event_type: &str,
     conn: &Connection,
     duration_secs: Option<u64>,
-    dns_resolver: Option<&DnsResolver>,
+    source_hostname: Option<String>,
+    dest_hostname: Option<String>,
 ) {
     // Build JSON object based on event type
     let mut event = json!({
@@ -36,15 +93,11 @@ pub fn log_connection_event(
         "destination_port": conn.remote_addr.port(),
     });
 
-    // Add hostname fields if DNS resolution is enabled and hostnames are resolved
-    // Skip ARP connections to avoid feedback loop (DNS lookups generate ARP traffic)
-    if let Some(resolver) = dns_resolver.filter(|_| conn.protocol != Protocol::Arp) {
-        if let Some(hostname) = resolver.get_hostname(&conn.remote_addr.ip()) {
-            event["destination_hostname"] = json!(hostname);
-        }
-        if let Some(hostname) = resolver.get_hostname(&conn.local_addr.ip()) {
-            event["source_hostname"] = json!(hostname);
-        }
+    if let Some(hostname) = dest_hostname {
+        event["destination_hostname"] = json!(hostname);
+    }
+    if let Some(hostname) = source_hostname {
+        event["source_hostname"] = json!(hostname);
     }
 
     // Add process information if available
@@ -138,8 +191,8 @@ pub fn log_connection_event(
     }
 }
 
-/// Helper function to log connection info to PCAP sidecar file (JSONL format)
-pub fn log_pcap_connection(pcap_path: &str, conn: &Connection) {
+/// Helper function to log connection info to PCAP sidecar file (Internal)
+fn log_pcap_connection_internal(pcap_path: &str, conn: &Connection) {
     let json_path = format!("{}.connections.jsonl", pcap_path);
 
     // Build base event without GeoIP fields
@@ -184,4 +237,27 @@ pub fn log_pcap_connection(pcap_path: &str, conn: &Connection) {
     {
         let _ = writeln!(file, "{}", json_str);
     }
+}
+
+/// Helper function to log connection events as JSON
+pub fn log_connection_event(
+    json_log_path: &str,
+    event_type: &str,
+    conn: &Connection,
+    duration_secs: Option<u64>,
+    dns_resolver: Option<&DnsResolver>,
+) {
+    log_connection_event_internal(
+        json_log_path,
+        event_type,
+        conn,
+        duration_secs,
+        dns_resolver.and_then(|r| r.get_hostname(&conn.local_addr.ip())),
+        dns_resolver.and_then(|r| r.get_hostname(&conn.remote_addr.ip())),
+    );
+}
+
+/// Helper function to log connection info to PCAP sidecar file (JSONL format)
+pub fn log_pcap_connection(pcap_path: &str, conn: &Connection) {
+    log_pcap_connection_internal(pcap_path, conn);
 }
