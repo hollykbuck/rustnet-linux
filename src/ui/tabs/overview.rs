@@ -133,22 +133,100 @@ fn connection_widths(show_location: bool) -> Vec<Constraint> {
     widths
 }
 
-fn connection_header(show_location: bool) -> Row<'static> {
+fn sort_indicator(sort_ascending: bool) -> &'static str {
+    if sort_ascending { " ▲" } else { " ▼" }
+}
+
+fn sort_header_index(sort_column: SortColumn, show_location: bool) -> Option<usize> {
+    match sort_column {
+        SortColumn::CreatedAt => None,
+        SortColumn::Protocol | SortColumn::Process => Some(1),
+        SortColumn::LocalAddress => Some(2),
+        SortColumn::RemoteAddress => Some(3),
+        SortColumn::Location => show_location.then_some(4),
+        SortColumn::State => Some(if show_location { 5 } else { 4 }),
+        SortColumn::Service => Some(if show_location { 6 } else { 5 }),
+        SortColumn::Application => Some(if show_location { 7 } else { 6 }),
+        SortColumn::BandwidthTotal => Some(if show_location { 8 } else { 7 }),
+    }
+}
+
+fn sort_title(ui_state: &UIState) -> String {
+    format!(
+        "Sort: {} {}",
+        ui_state.sort_column.display_name(),
+        if ui_state.sort_ascending {
+            "↑"
+        } else {
+            "↓"
+        }
+    )
+}
+
+fn header_cell(
+    title: &'static str,
+    index: usize,
+    active_index: Option<usize>,
+    asc: bool,
+) -> Cell<'static> {
+    if active_index == Some(index) {
+        Cell::from(Line::from(vec![
+            Span::raw(title),
+            Span::raw(sort_indicator(asc)),
+        ]))
+        .style(bold_underline_fg(accent()))
+    } else {
+        Cell::from(title)
+    }
+}
+
+fn connection_header(show_location: bool, ui_state: &UIState) -> Row<'static> {
+    let active_index = sort_header_index(ui_state.sort_column, show_location);
     let mut cells = vec![
         Cell::from(""),
-        Cell::from("Process / Protocol"),
-        Cell::from("Local Address"),
-        Cell::from("Remote Address"),
+        header_cell(
+            "Process / Protocol",
+            1,
+            active_index,
+            ui_state.sort_ascending,
+        ),
+        header_cell("Local Address", 2, active_index, ui_state.sort_ascending),
+        header_cell("Remote Address", 3, active_index, ui_state.sort_ascending),
     ];
     if show_location {
-        cells.push(Cell::from("Loc"));
+        cells.push(header_cell("Loc", 4, active_index, ui_state.sort_ascending));
     }
+    let state_idx = if show_location { 5 } else { 4 };
     cells.extend([
-        Cell::from("State"),
-        Cell::from("Service"),
-        Cell::from("Application"),
-        Cell::from(Line::from("Down/Up").right_aligned()),
+        header_cell("State", state_idx, active_index, ui_state.sort_ascending),
+        header_cell(
+            "Service",
+            state_idx + 1,
+            active_index,
+            ui_state.sort_ascending,
+        ),
+        header_cell(
+            "Application",
+            state_idx + 2,
+            active_index,
+            ui_state.sort_ascending,
+        ),
     ]);
+    let bandwidth_idx = state_idx + 3;
+    if active_index == Some(bandwidth_idx) {
+        cells.push(
+            Cell::from(
+                Line::from(vec![
+                    Span::raw("Down/Up"),
+                    Span::raw(sort_indicator(ui_state.sort_ascending)),
+                ])
+                .right_aligned(),
+            )
+            .style(bold_underline_fg(accent())),
+        );
+    } else {
+        cells.push(Cell::from(Line::from("Down/Up").right_aligned()));
+    }
 
     Row::new(cells)
         .style(fg(heading()))
@@ -206,6 +284,12 @@ fn application_style(conn: &Connection) -> Style {
         .unwrap_or(Color::Reset)))
 }
 
+fn location_label(conn: &Connection) -> &str {
+    conn.geoip_info
+        .as_ref()
+        .map_or("-", |geoip| geoip.country_display())
+}
+
 fn draw_connections_list(
     f: &mut Frame,
     ui_state: &UIState,
@@ -217,7 +301,7 @@ fn draw_connections_list(
     click_regions: &mut ClickableRegions,
 ) {
     let widths = connection_widths(show_location);
-    let header = connection_header(show_location);
+    let header = connection_header(show_location, ui_state);
 
     let scroll_offset = ui_state.scroll_offset;
     let visible_rows = ui_state.visible_rows.max(1);
@@ -245,12 +329,9 @@ fn draw_connections_list(
                 Cell::from(remote_addr).style(style_if_colored(field_remote_addr())),
             ];
             if show_location {
-                let loc = conn
-                    .geoip_info
-                    .as_ref()
-                    .and_then(|g| g.country_code.as_deref())
-                    .unwrap_or("-");
-                cells.push(Cell::from(loc).style(style_if_colored(field_location())));
+                cells.push(
+                    Cell::from(location_label(conn)).style(style_if_colored(field_location())),
+                );
             }
             cells.extend([
                 Cell::from(conn.state()).style(style_if_colored(fg(state_color(conn)))),
@@ -269,7 +350,11 @@ fn draw_connections_list(
         state.select(Some(idx.saturating_sub(scroll_offset)));
     }
 
-    let title = format!(" Connections ({}) ", connections.len());
+    let title = format!(
+        " Connections ({}) | {} ",
+        connections.len(),
+        sort_title(ui_state)
+    );
     let table = Table::new(rows, widths)
         .header(header)
         .block(panel_block(title))
@@ -370,7 +455,10 @@ fn draw_grouped_connections_list(
                     Cell::from(remote_addr).style(style_if_colored(field_remote_addr())),
                 ];
                 if show_location {
-                    cells.push(Cell::from("-"));
+                    cells.push(
+                        Cell::from(location_label(connection))
+                            .style(style_if_colored(field_location())),
+                    );
                 }
                 cells.extend([
                     Cell::from(connection.state())
@@ -399,15 +487,10 @@ fn draw_grouped_connections_list(
     }
 
     let table = Table::new(rows, &widths)
-        .header(connection_header(show_location))
+        .header(connection_header(show_location, ui_state))
         .block(panel_block(format!(
-            " Grouped by Process (A-Z) | Connections: {} {} ",
-            ui_state.sort_column.display_name(),
-            if ui_state.sort_ascending {
-                "↑"
-            } else {
-                "↓"
-            }
+            " Grouped by Process (A-Z) | {} ",
+            sort_title(ui_state)
         )))
         .row_highlight_style(row_highlight())
         .highlight_symbol("> ");
@@ -422,6 +505,61 @@ fn draw_grouped_connections_list(
         click_regions.register(
             Rect::new(inner.x, inner.y + header_height + i as u16, inner.width, 1),
             ClickAction::SelectConnection(row_idx),
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::network::geoip::GeoIpInfo;
+    use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+
+    fn test_connection() -> Connection {
+        Connection::new(
+            Protocol::Tcp,
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(192, 168, 1, 10)), 50000),
+            SocketAddr::new(IpAddr::V4(Ipv4Addr::new(93, 184, 216, 34)), 443),
+            ProtocolState::Tcp(TcpState::Established),
+        )
+    }
+
+    #[test]
+    fn location_label_uses_geoip_country_code() {
+        let mut conn = test_connection();
+        conn.geoip_info = Some(GeoIpInfo {
+            country_code: Some("US".to_string()),
+            ..GeoIpInfo::default()
+        });
+
+        assert_eq!(location_label(&conn), "US");
+    }
+
+    #[test]
+    fn location_label_falls_back_when_country_missing() {
+        let mut conn = test_connection();
+        assert_eq!(location_label(&conn), "-");
+
+        conn.geoip_info = Some(GeoIpInfo {
+            city: Some("Mountain View".to_string()),
+            ..GeoIpInfo::default()
+        });
+        assert_eq!(location_label(&conn), "-");
+    }
+
+    #[test]
+    fn sort_header_index_tracks_optional_location_column() {
+        assert_eq!(sort_header_index(SortColumn::CreatedAt, true), None);
+        assert_eq!(sort_header_index(SortColumn::Process, true), Some(1));
+        assert_eq!(sort_header_index(SortColumn::Protocol, true), Some(1));
+        assert_eq!(sort_header_index(SortColumn::Location, true), Some(4));
+        assert_eq!(sort_header_index(SortColumn::Location, false), None);
+        assert_eq!(sort_header_index(SortColumn::State, true), Some(5));
+        assert_eq!(sort_header_index(SortColumn::State, false), Some(4));
+        assert_eq!(sort_header_index(SortColumn::BandwidthTotal, true), Some(8));
+        assert_eq!(
+            sort_header_index(SortColumn::BandwidthTotal, false),
+            Some(7)
         );
     }
 }
