@@ -1,5 +1,5 @@
 use crate::network::dns::DnsResolver;
-use crate::network::types::{ApplicationProtocol, Connection, Protocol};
+use crate::network::types::{ApplicationProtocol, Connection};
 use crossbeam::channel::Receiver;
 use serde_json::json;
 use std::fs::{File, OpenOptions};

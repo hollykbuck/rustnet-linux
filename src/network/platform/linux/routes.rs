@@ -3,10 +3,10 @@
 use crate::network::types::RouteEntry;
 use anyhow::{Context, Result};
 use futures::stream::TryStreamExt;
-use rtnetlink::new_connection;
-use netlink_packet_route::route::{RouteMessage, RouteAttribute, RouteAddress};
-use netlink_packet_route::link::LinkAttribute;
 use netlink_packet_route::AddressFamily;
+use netlink_packet_route::link::LinkAttribute;
+use netlink_packet_route::route::{RouteAddress, RouteAttribute, RouteMessage};
+use rtnetlink::new_connection;
 use std::collections::HashMap;
 use std::fs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
@@ -19,7 +19,10 @@ impl LinuxRouteProvider {
         match Self::get_routes_netlink().await {
             Ok(routes) => Ok(routes),
             Err(e) => {
-                log::warn!("Netlink routing lookup failed, falling back to procfs: {}", e);
+                log::warn!(
+                    "Netlink routing lookup failed, falling back to procfs: {}",
+                    e
+                );
                 Self::get_routes_procfs()
             }
         }
@@ -33,7 +36,11 @@ impl LinuxRouteProvider {
         // 1. Get link list to map interface index -> name
         let mut links = handle.link().get().execute();
         let mut index_to_name = HashMap::new();
-        while let Some(link) = links.try_next().await.context("Failed to get Netlink links")? {
+        while let Some(link) = links
+            .try_next()
+            .await
+            .context("Failed to get Netlink links")?
+        {
             let index = link.header.index;
             for attr in link.attributes {
                 if let LinkAttribute::IfName(name) = attr {
@@ -48,7 +55,7 @@ impl LinuxRouteProvider {
         for family in [AddressFamily::Inet, AddressFamily::Inet6] {
             let mut message = RouteMessage::default();
             message.header.address_family = family;
-            
+
             let mut route_stream = handle.route().get(message).execute();
             while let Some(route) = route_stream
                 .try_next()

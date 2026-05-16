@@ -14,7 +14,7 @@ pub mod state;
 pub mod threads;
 pub mod types;
 
-use crate::app::logging::{LogEvent, log_pcap_connection, run_logging_task};
+use crate::app::logging::LogEvent;
 use crate::app::state::QUIC_CONNECTION_MAPPING;
 use crate::network::dns::DnsResolver;
 use crate::network::geoip::{GeoIpConfig, GeoIpResolver};

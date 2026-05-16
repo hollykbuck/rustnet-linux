@@ -9,7 +9,6 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime};
 
 use crate::app::ProcessDetectionStatus;
-use crate::app::logging::{log_connection_event, log_pcap_connection};
 use crate::app::state::{QUIC_CONNECTION_MAPPING, update_connection, update_device};
 use crate::network::capture::{CaptureConfig, PacketReader, setup_packet_capture};
 use crate::network::interface_stats::{InterfaceStats, InterfaceStatsProvider};
